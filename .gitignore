@@ -1,0 +1,17 @@
+# veRL reference: only commit core source, ignore docs/examples/tests/docker
+verl-main-0516/*
+!verl-main-0516/verl/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
