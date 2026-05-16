@@ -2,7 +2,9 @@
 
 ## 测试概述
 
-A1 的测试位于 `tests/test_serve_ppo.py`，是一套 **无 GPU 依赖的冒烟测试**。通过 mock `LLMServerClient` 和 `tokenizer`，在本地即可验证完整 API 链路。
+A1 的测试位于 `tests/test_serve_ppo.py`，是一套 **无 GPU 依赖的冒烟测试**。通过 mock `LLMServerClient` 和 `tokenizer`，不依赖 Ray/Torch/GPU，在 Windows 本地即可验证完整 API 链路。
+
+被测模块: `trainable_openclaw/server/api.py`（独立于 veRL 内部依赖）
 
 ## 运行方式
 
@@ -15,15 +17,15 @@ python -m pytest tests/test_serve_ppo.py -v
 
 | # | 测试方法 | 类型 | 验证内容 | 对应代码行 |
 |---|---------|------|---------|-----------|
-| 1 | `test_chat_message` | 单元 | `ChatMessage` 模型字段和 `model_dump()` | serve_ppo.py:65-67 |
-| 2 | `test_chat_completion_request` | 单元 | `ChatCompletionRequest` 字段赋值 + 默认值 (stream=False, top_p=None) | serve_ppo.py:70-77 |
-| 3 | `test_chat_completion_request_defaults` | 单元 | 省略 model/temperature 时的默认值 (model="default", temperature=None) | serve_ppo.py:71,73 |
-| 4 | `test_chat_completion_response` | 单元 | `ChatCompletionResponse` 完整结构：choices嵌套、usage统计、object字段 | serve_ppo.py:92-98 |
-| 5 | `test_health_response` | 单元 | `HealthResponse` 模型字段 | serve_ppo.py:101-106 |
-| 6 | `test_health` | 集成 | `GET /v1/health` 返回200 + status/mode/gpu_count | serve_ppo.py:131-139 |
-| 7 | `test_chat_completions` | 集成 | `POST /v1/chat/completions` 返回完整 OpenAI 兼容响应 | serve_ppo.py:141-207 |
-| 8 | `test_chat_completions_uses_default_sampling` | 集成 | 请求不含 sampling params 时回退到 rollout_config 默认值 | serve_ppo.py:162-165 |
-| 9 | `test_chat_completions_uninitialized` | 集成 | 服务未初始化时返回 503 | serve_ppo.py:147-148 |
+| 1 | `test_chat_message` | 单元 | `ChatMessage` 模型字段和 `model_dump()` | api.py:65-67 |
+| 2 | `test_chat_completion_request` | 单元 | `ChatCompletionRequest` 字段赋值 + 默认值 (stream=False, top_p=None) | api.py:70-77 |
+| 3 | `test_chat_completion_request_defaults` | 单元 | 省略 model/temperature 时的默认值 (model="default", temperature=None) | api.py:71,73 |
+| 4 | `test_chat_completion_response` | 单元 | `ChatCompletionResponse` 完整结构：choices嵌套、usage统计、object字段 | api.py:92-98 |
+| 5 | `test_health_response` | 单元 | `HealthResponse` 模型字段 | api.py:101-106 |
+| 6 | `test_health` | 集成 | `GET /v1/health` 返回200 + status/mode/gpu_count | api.py:131-139 |
+| 7 | `test_chat_completions` | 集成 | `POST /v1/chat/completions` 返回完整 OpenAI 兼容响应 | api.py:141-207 |
+| 8 | `test_chat_completions_uses_default_sampling` | 集成 | 请求不含 sampling params 时回退到 rollout_config 默认值 | api.py:162-165 |
+| 9 | `test_chat_completions_uninitialized` | 集成 | 服务未初始化时返回 503 | api.py:147-148 |
 
 ## Mock 依赖说明
 

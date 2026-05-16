@@ -1,8 +1,8 @@
-"""Smoke tests for serve_ppo.py — no GPU required.
+"""Smoke tests for inference API server — no GPU required.
 
 These tests verify:
-1. The serve_ppo module is importable (Pydantic models, FastAPI app factory)
-2. The FastAPI endpoints return correct responses with a mock LLM client
+1. Pydantic models and FastAPI app from trainable_openclaw.server.api
+2. Endpoints return correct responses with a mock LLM client
 3. OpenAI-compatible request/response formats are valid
 
 Run with:
@@ -24,7 +24,7 @@ class TestChatModels:
     """Verify OpenAI-compatible request/response models."""
 
     def test_chat_message(self):
-        from verl.trainer.serve_ppo import ChatMessage
+        from trainable_openclaw.server.api import ChatMessage
 
         msg = ChatMessage(role="user", content="Hello")
         assert msg.role == "user"
@@ -34,7 +34,7 @@ class TestChatModels:
         assert d == {"role": "user", "content": "Hello"}
 
     def test_chat_completion_request(self):
-        from verl.trainer.serve_ppo import ChatCompletionRequest, ChatMessage
+        from trainable_openclaw.server.api import ChatCompletionRequest, ChatMessage
 
         req = ChatCompletionRequest(
             model="test-model",
@@ -51,14 +51,14 @@ class TestChatModels:
         assert req.top_p is None
 
     def test_chat_completion_request_defaults(self):
-        from verl.trainer.serve_ppo import ChatCompletionRequest, ChatMessage
+        from trainable_openclaw.server.api import ChatCompletionRequest, ChatMessage
 
         req = ChatCompletionRequest(messages=[ChatMessage(role="user", content="Hi")])
         assert req.model == "default"
         assert req.temperature is None
 
     def test_chat_completion_response(self):
-        from verl.trainer.serve_ppo import (
+        from trainable_openclaw.server.api import (
             ChatCompletionResponse,
             ChatCompletionResponseChoice,
             ChatMessage,
@@ -84,7 +84,7 @@ class TestChatModels:
         assert d["usage"]["total_tokens"] == 8
 
     def test_health_response(self):
-        from verl.trainer.serve_ppo import HealthResponse
+        from trainable_openclaw.server.api import HealthResponse
 
         resp = HealthResponse(status="ok", mode="serving", uptime_seconds=10.5, active_requests=2, gpu_count=4)
         d = resp.model_dump()
@@ -109,11 +109,12 @@ def mock_tokenizer():
 
 @pytest.fixture
 def mock_llm_client():
-    """Create a mock LLMServerClient that returns a fixed TokenOutput."""
-    from verl.workers.rollout.replica import TokenOutput
-
+    """Create a mock LLMServerClient that returns a fixed TokenOutput-like object."""
     client = AsyncMock()
-    output = TokenOutput(token_ids=[10, 20, 30], log_probs=None, stop_reason="stop")
+    output = MagicMock()
+    output.token_ids = [10, 20, 30]
+    output.log_probs = None
+    output.stop_reason = "stop"
     client.generate.return_value = output
     return client
 
@@ -123,7 +124,7 @@ def test_app(mock_tokenizer, mock_llm_client):
     """Create a FastAPI test client with mock dependencies."""
     from fastapi.testclient import TestClient
 
-    from verl.trainer.serve_ppo import _app_state, create_app
+    from trainable_openclaw.server.api import _app_state, create_app
 
     app = create_app()
 
@@ -187,7 +188,7 @@ class TestFastAPIEndpoints:
         """Returns 503 when server not initialized."""
         from fastapi.testclient import TestClient
 
-        from verl.trainer.serve_ppo import _app_state, create_app
+        from trainable_openclaw.server.api import _app_state, create_app
 
         app = create_app()
         _app_state.clear()  # Simulate uninitialized state
