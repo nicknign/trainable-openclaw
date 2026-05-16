@@ -95,6 +95,40 @@ When no requests arrive for a configurable timeout, the system:
 
 ---
 
+## Why a New Project? (vs. agent-lightning)
+
+Microsoft's [agent-lightning](https://github.com/microsoft/agent-lightning) (17K+ stars) is an excellent framework for training AI agents with RL. It wraps ANY agent framework (LangChain, AutoGen, CrewAI, OpenAI SDK) and supports multiple algorithms (RL, APO, SFT) via a central "LightningStore." If you have an existing agent and want to train it — use agent-lightning.
+
+Trainable OpenClaw takes a **fundamentally different architectural bet**:
+
+| Dimension | agent-lightning | Trainable OpenClaw |
+|-----------|----------------|---------------------|
+| **Core paradigm** | Training framework that wraps agents | Self-evolving inference engine |
+| **Inference engine** | External (proxied via LiteLLM) | Internal (deeply modified veRL) |
+| **Training trigger** | Algorithm-driven (explicit loop) | Idle-driven (background automatic) |
+| **Engine integration** | Shallow — sends HTTP requests to vLLM | Deep — controls sleep/wake/weight-sync at engine level |
+| **Code footprint** | ~67 core files, multi-store, multi-algo | ~6 core modules, single focused pipeline |
+| **Target user** | Researcher training an agent | Service operator running an evolving model |
+| **Agent coupling** | Agent code runs in the loop | Agent is the user of the API (decoupled) |
+
+**The key insight:** agent-lightning treats the inference engine as a black-box service — it sends prompts and reads responses. Trainable OpenClaw treats the inference engine as the **product itself**. We modify veRL's hybrid engine so that:
+
+1. The rollout replicas **stay awake** and serve user requests directly (not through a proxy)
+2. Training is triggered by **real idle detection** (no requests → sleep replicas → train → wake)
+3. Weight synchronization happens **in-place** on the same GPU workers
+4. Users interact with **a single HTTP endpoint** — they don't need to write agent code
+
+This makes Trainable OpenClaw more like a **personalized inference service** that quietly improves from usage, rather than a training framework you bring your agent to.
+
+### When to use which?
+
+| Your need | Use |
+|-----------|-----|
+| "I want to train my agent" | agent-lightning |
+| "I want an inference service that gets smarter over time" | Trainable OpenClaw |
+
+---
+
 ## Quick Start
 
 > **Prerequisites:** Python 3.10+, CUDA 12.4+, 1-8 GPUs (single GPU works for small models)
@@ -158,7 +192,7 @@ See [docs/roadmap.md](docs/roadmap.md) for the detailed development plan.
 | Phase | Status |
 |-------|--------|
 | Phase 0 — Paper survey & algorithm design | In progress |
-| Phase 1 — veRL dual-mode engine | Pending |
+| Phase 1 — veRL dual-mode engine | ✅ A1, A2 complete |
 | Phase 2 — Self-evolving evaluation system | Pending |
 | Phase 3 — Integration & dashboard | Pending |
 | Phase 4 — Benchmark & evaluation | Pending |

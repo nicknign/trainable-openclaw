@@ -95,6 +95,40 @@ GRPO 训练时，系统对每个 prompt 生成 N 个候选回答。所有候选�
 
 ---
 
+## 为什么做这个项目？（与 agent-lightning 的差异化）
+
+微软的 [agent-lightning](https://github.com/microsoft/agent-lightning)（17K+ stars）是一个优秀的 Agent 训练框架。它用 LightningStore 中心枢纽支持任意 Agent 框架（LangChain、AutoGen、CrewAI、OpenAI SDK）和多种算法（RL、APO、SFT）。如果你已有 Agent 想训练 — 用它。
+
+Trainable OpenClaw 做了一个**根本性的架构选择差异**：
+
+| 维度 | agent-lightning | Trainable OpenClaw |
+|------|----------------|---------------------|
+| **核心范式** | 训练框架包裹 Agent | 自进化推理引擎 |
+| **推理引擎** | 外部（通过 LiteLLM 代理） | 内部（深度改造 veRL） |
+| **训练触发** | 算法驱动（显式循环） | 空闲驱动（后台自动） |
+| **引擎集成深度** | 浅层 — 向 vLLM 发 HTTP 请求 | 深层 — 控制 sleep/wake/weight-sync |
+| **代码量** | ~67 核心文件，多存储多算法 | ~6 核心模块，单一聚焦链路 |
+| **目标用户** | 训练 Agent 的研究者 | 运营进化中模型的服务提供者 |
+| **Agent 耦合** | Agent 代码在循环内运行 | Agent 是 API 的用户（解耦） |
+
+**核心洞察：** agent-lightning 把推理引擎当作黑盒服务 — 发 prompt、收 response。Trainable OpenClaw 把推理引擎当作**产品本身**。我们深入改造 veRL 的 hybrid engine：
+
+1. rollout replicas **保持唤醒**，直接服务用户请求（不走 proxy）
+2. 训练由**真实空闲检测**触发（无请求 → sleep replicas → 训练 → wake）
+3. 权重同步在**同一组 GPU worker** 上原地完成
+4. 用户只需调用**一个 HTTP 端点**，无需写 Agent 代码
+
+这让 Trainable OpenClaw 更像一个**越用越聪明的个性化推理服务**，而非一个你去提交 Agent 来训练的平台。
+
+### 什么时候用哪个？
+
+| 你的需求 | 用哪个 |
+|---------|--------|
+| "我想训练我的 Agent" | agent-lightning |
+| "我想要一个越用越聪明的推理服务" | Trainable OpenClaw |
+
+---
+
 ## 快速开始
 
 > **环境要求：** Python 3.10+, CUDA 12.4+, 1-8 GPUs（小模型单卡即可）
@@ -158,7 +192,7 @@ trainable-openclaw/
 | 阶段 | 状态 |
 |------|------|
 | Phase 0 — 论文调研与算法确定 | 进行中 |
-| Phase 1 — veRL双模引擎改造 | 待开始 |
+| Phase 1 — veRL双模引擎改造 | ✅ A1, A2 完成 |
 | Phase 2 — 自进化评判系统 | 待开始 |
 | Phase 3 — 集成与Dashboard | 待开始 |
 | Phase 4 — 测试集与效果评估 | 待开始 |
