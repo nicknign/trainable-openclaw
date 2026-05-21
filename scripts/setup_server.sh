@@ -13,23 +13,10 @@ echo "  Setup started: $(date)"
 echo "  Log file: $LOG"
 echo "========================================="
 
-export TMPDIR=/root/autodl-tmp/tmp
-export PIP_CACHE_DIR=/root/autodl-tmp/pip_cache
-export HF_HOME=/root/autodl-tmp/models
-export HF_ENDPOINT=https://hf-mirror.com
+# Fix: conda libs (pyarrow, sklearn) need newer libstdc++ than system provides
+export LD_LIBRARY_PATH=/data/anaconda3/lib:$LD_LIBRARY_PATH
+
 export MODELSCOPE_CACHE=/root/autodl-tmp/modelscope_cache
-
-# ----------------------------------------------------------
-# Step 1: Install vllm 0.12.0
-# ----------------------------------------------------------
-echo ""
-echo "=== [1/3] Installing vllm 0.12.0 (compatible with CUDA 12.x) ==="
-pip3 install vllm==0.12.0 2>&1 | tail -5
-
-python3 -c "
-import vllm
-print('vLLM {} installed OK'.format(vllm.__version__))
-"
 
 # ----------------------------------------------------------
 # Step 2: Download Qwen3-0.6B
@@ -80,7 +67,7 @@ for o in outputs:
     print('Prompt:', o.prompt)
     print('Output:', o.outputs[0].text)
 print()
-print('=== SUCCESS: Qwen3-0.6B works with vllm 0.12.0 ===')
+print('=== SUCCESS: Qwen3-0.6B works with vllm 0.18.1 ===')
 "
 
 echo ""
