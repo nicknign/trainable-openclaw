@@ -63,3 +63,61 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+---
+
+# 项目进展记录
+
+## 2026/05/21
+
+### 远程环境搭建
+- 远程 Linux GPU 机器 (AutoDL, `connect.westd.seetacloud.com:29669`, `/data/wangye/trainable-openclaw`)
+- vllm 0.12.0 + Qwen3-0.6B 推理通过验证
+- serve_ppo 尝试启动，暂搁置
+
+### 代码改动
+- `requirements.txt`: 添加 fastapi/uvicorn/httpx/aiohttp/openai 等依赖
+- `verl-main-0516/verl/workers/config/model.py`: 默认 attention `flash_attention_2` → `sdpa`
+- `scripts/set_env.sh`: Linux 环境安装脚本
+- `scripts/setup_server.sh`: 服务端部署脚本（模型下载 + vllm 推理测试）
+- `scripts/run_serve.sh`: serve_ppo 启动脚本
+- `scripts/check_models.py`: ModelScope 模型查询工具
+- `scripts/download_model.py`: ModelScope 模型下载工具
+
+### 待办
+1. 手动启动远端机器，运行环境脚本
+2. 解决 serve_ppo 遗留问题
+3. 提交并推送本地改动
+
+---
+
+## 2026/05/22
+
+### 环境更新
+- 远端服务器安装了 conda python 环境（base, Python 3.13）
+- vllm 升级到 0.18.1
+
+### 问题修复：libstdc++ 版本不兼容
+- **现象**: `ImportError: /usr/lib/x86_64-linux-gnu/libstdc++.so.6: version 'CXXABI_1.3.15' not found`
+- **根因**: conda 安装的 pyarrow/sklearn 需要新版 libstdc++，系统自带版本太旧
+- **修复**: 
+  - `scripts/set_env.sh` 和 `scripts/setup_server.sh` 中添加 `export LD_LIBRARY_PATH=/data/anaconda3/lib:$LD_LIBRARY_PATH`
+  - 永久化：写入 `/data/anaconda3/etc/conda/activate.d/env_vars.sh`，每次 conda activate 自动生效
+
+### veRL Inference Server 启动成功
+- FastAPI 服务正常监听 `http://0.0.0.0:8000`
+- `/v1/health` 健康检查端点正常
+- `/v1/chat/completions` 聊天端点返回 200
+
+### 待解决问题：Qwen3-0.6B 推理输出乱码
+- **现象**: `/v1/chat/completions` 返回的 content 为多语言乱码、随机 token
+- **怀疑**: 模型文件下载不完整/损坏，或 vllm 0.18.1 与 Qwen3 架构不兼容
+- **诊断方向**: 
+  1. 检查模型文件完整性（`ls -la` / `du -sh`）
+  2. 用 transformers 直接加载测试，排除 vllm 因素
+  3. 必要时重新下载模型
+
+### 关键路径
+- SFTP: `connect.westd.seetacloud.com:29669` → `/data/wangye/trainable-openclaw`
+- 模型目录: `/root/autodl-tmp/models/Qwen3-0.6B`
+- conda: `/data/anaconda3`
