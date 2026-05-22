@@ -53,6 +53,7 @@ class ChatCompletionRequest(BaseModel):
     top_k: Optional[int] = None
     max_tokens: Optional[int] = None
     stream: bool = False
+    enable_thinking: bool = True
 
 
 class ChatCompletionResponseChoice(BaseModel):
@@ -142,6 +143,7 @@ def create_app() -> FastAPI:
             [m.model_dump() for m in req.messages],
             tokenize=False,
             add_generation_prompt=True,
+            enable_thinking=req.enable_thinking,
         )
 
         # Tokenize
@@ -161,6 +163,11 @@ def create_app() -> FastAPI:
             _app_state["active_requests"] = _app_state.get("active_requests", 0) + 1
 
             # Call veRL's async generate
+            logger.info(
+                f"[DIAG] chat_completions {request_id}: "
+                f"prompt_len={len(prompt_ids)}, first_10_ids={prompt_ids[:10]!r}, "
+                f"last_10_ids={prompt_ids[-10:]!r}, prompt_text={prompt_text[:100]!r}"
+            )
             output = await llm_client.generate(
                 request_id=request_id,
                 prompt_ids=prompt_ids,
@@ -172,6 +179,12 @@ def create_app() -> FastAPI:
                 orchestrator.record_request(prompt_ids, list(output.token_ids))
 
             # Detokenize response
+            logger.info(
+                f"[DIAG] chat_completions {request_id} output: "
+                f"output_token_len={len(output.token_ids)}, "
+                f"first_10_ids={output.token_ids[:10]!r}, "
+                f"decoded_text={tokenizer.decode(output.token_ids[:20], skip_special_tokens=False)!r}"
+            )
             response_text = tokenizer.decode(output.token_ids, skip_special_tokens=True)
             prompt_tokens = len(prompt_ids)
             completion_tokens = len(output.token_ids)

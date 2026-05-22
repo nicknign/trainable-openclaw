@@ -109,15 +109,31 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - `/v1/health` 健康检查端点正常
 - `/v1/chat/completions` 聊天端点返回 200
 
-### 待解决问题：Qwen3-0.6B 推理输出乱码
+### 问题解决：推理输出乱码（load_format=dummy）
 - **现象**: `/v1/chat/completions` 返回的 content 为多语言乱码、随机 token
-- **怀疑**: 模型文件下载不完整/损坏，或 vllm 0.18.1 与 Qwen3 架构不兼容
-- **诊断方向**: 
-  1. 检查模型文件完整性（`ls -la` / `du -sh`）
-  2. 用 transformers 直接加载测试，排除 vllm 因素
-  3. 必要时重新下载模型
+- **根因**: vLLM 启动时使用了 `load_format=dummy`（随机权重），而不是加载真实模型权重
+  - serve_ppo 使用 HYBRID 模式（rollout engine + training engine 混合部署）
+  - HYBRID 模式下，`dummy` 是故意的——training engine 会在训练时通过 `sync_weights()` 同步真实权重
+  - 但 serve_ppo 纯推理模式下没有 training engine，权重永远不会被同步，导致随机输出
+  - `vllm_async_server.py:135` 的 `dummy→auto` 修正逻辑只对非 HYBRID 模式生效
+- **修复**:
+  - `scripts/start_server_4b.sh`: 添加 `actor_rollout_ref.rollout.load_format=auto` 显式覆盖
+  - `verl-main-0516/verl/trainer/serve_ppo.py`: 代码层自动修正——serve-only 模式下检测到 load_format=dummy 时自动改为 auto
+  - 确认 vLLM worker 日志显示 `Loading safetensors checkpoint shards` 加载真实权重
+- **验证**: Qwen3-4B 推理输出正常——"Introduce yourself" → 正确自我介绍；thinking 模式也正常
+
+### 交互式聊天 CLI
+- `scripts/chat.py`: 多轮对话 CLI 工具
+  - 用法: `python scripts/chat.py [-t temp] [-m max_tokens] [-M model] [--no-think] [server_url]`
+  - 命令: `/think` 切换thinking模式, `/clear` 清空历史, `/undo` 撤销, `/quit` 退出
+
+### 当前状态
+- serve_ppo 服务正常运行在 `http://localhost:8000`（PID 27846）
+- Qwen3-4B 推理功能完整：支持 thinking 开关、多轮对话
+- 训练功能（A2 orchestrator）框架已搭建，待实现 train_step
 
 ### 关键路径
 - SFTP: `connect.westd.seetacloud.com:29669` → `/data/wangye/trainable-openclaw`
-- 模型目录: `/root/autodl-tmp/models/Qwen3-0.6B`
+- 模型目录: `/data/models/Qwen3-4B`
 - conda: `/data/anaconda3`
+- verl editable install: `/root/autodl-tmp/wangye/trainable-openclaw/verl-main-0516`（与 `/data/wangye/` 同文件系统，文件一致）

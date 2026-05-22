@@ -242,6 +242,13 @@ def run_serve(config) -> None:
     """Initialize Ray, create ServeRunner actor, and start FastAPI on the driver."""
     from verl.utils.device import is_cuda_available
 
+    # In serve-only mode, load_format must NOT be "dummy" — there is no
+    # training engine to sync real weights, so vLLM would generate garbage.
+    load_format = OmegaConf.select(config, "actor_rollout_ref.rollout.load_format")
+    if load_format is None or load_format == "dummy":
+        config.actor_rollout_ref.rollout.load_format = "auto"
+        print(f"[serve_ppo] load_format={load_format or 'default'} → auto (serve-only mode)")
+
     # ---- Ray init ----
     if not ray.is_initialized():
         default_runtime_env = get_ppo_ray_runtime_env()

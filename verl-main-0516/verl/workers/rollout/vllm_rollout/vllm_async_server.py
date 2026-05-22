@@ -531,6 +531,17 @@ class vLLMHttpServer:
             final_res = output
         assert final_res is not None
 
+        # ---- DIAGNOSTIC: log first output tokens for debugging ----
+        if not final_res.outputs:
+            logger.warning(f"[DIAG] generate {request_id}: empty outputs (aborted)")
+        else:
+            tok_ids = final_res.outputs[0].token_ids
+            logger.info(
+                f"[DIAG] generate {request_id}: "
+                f"prompt_len={len(prompt_ids)}, output_len={len(tok_ids)}, "
+                f"output_first_20_ids={tok_ids[:20]!r}"
+            )
+
         # Handle abort case: when the request is aborted by pause_generation(abort),
         # outputs may be empty. Return empty results with stop_reason="aborted"
         # instead of crashing with "IndexError: list index out of range".
