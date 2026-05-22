@@ -127,10 +127,28 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
   - 用法: `python scripts/chat.py [-t temp] [-m max_tokens] [-M model] [--no-think] [server_url]`
   - 命令: `/think` 切换thinking模式, `/clear` 清空历史, `/undo` 撤销, `/quit` 退出
 
+### A2：空闲检测 + 训练触发
+
+- `trainable_openclaw/training/orchestrator.py`: 训练编排器
+  - **空闲检测**: 后台监控线程，每1s轮询，记录最后请求时间
+  - **样本积累**: API handler 在每次生成完成后调用 `record_request()`，存入 deque
+  - **训练触发条件**: 空闲超时 (idle_timeout) AND 样本数 >= min_samples
+  - **训练期间**: `training_in_progress=True` → API 返回 503 `Training in progress, try later`
+  - **生命周期**: SERVING → (idle+样本够) → TRAINING → (完成) → SERVING
+- `verl-main-0516/verl/trainer/serve_ppo.py` 中的集成:
+  - `_train_bridge`: orchestrator 线程回调 → Ray actor 执行 train_step
+  - sleep/wake 暂未启用 (vLLM V1 引擎 sleep 后 CUDA 崩溃)，A3 重新接入
+- `tests/test_orchestrator.py`: 24 个 mock 测试 (TrainingSample, 构造/校验, 记录, 触发, 监控, 线程安全)
+- `tests/test_a2_integration.py`: 5 个 GPU 集成测试 (serving→503→recovery→inference)
+- **验证**: 24 mock + 5 GPU 全部通过 ✅
+
 ### 当前状态
-- serve_ppo 服务正常运行在 `http://localhost:8000`（PID 27846）
-- Qwen3-4B 推理功能完整：支持 thinking 开关、多轮对话
-- 训练功能（A2 orchestrator）框架已搭建，待实现 train_step
+- serve_ppo 支持 A1+A2：推理 + 空闲检测 + 训练编排
+- 启动命令示例（含 A2 低阈值）:
+  ```bash
+  ... +trainer.idle_timeout=5 +trainer.min_samples=2
+  ```
+- train_step 为 stub（3s 延迟），真正训练待 A3 实现
 
 ### 关键路径
 - SFTP: `connect.westd.seetacloud.com:29669` → `/data/wangye/trainable-openclaw`

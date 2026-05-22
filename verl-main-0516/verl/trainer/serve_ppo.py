@@ -213,7 +213,13 @@ class ServeRunner(TaskRunner):
         Real implementation will invoke veRL's RayPPOTrainer.fit() for
         a single step, then merge/update weights before waking replicas.
         """
+        import time
+
         logger.info(f"train_step called with {len(samples)} samples (stub)")
+        # Simulate training time so the "training in progress" window is
+        # observable for A2 integration tests.
+        time.sleep(3.0)
+        logger.info("train_step completed (stub)")
         # TODO: integrate RayPPOTrainer single-step training here
         # 1. Build DataProto from samples
         # 2. Compute old_log_probs with rollout engine (wake, forward, sleep)
@@ -299,11 +305,16 @@ def run_serve(config) -> None:
             {"prompt_ids": s.prompt_ids, "response_ids": s.response_ids, "metadata": s.metadata}
             for s in samples
         ]
-        ray.get(runner.sleep_replicas.remote())
+        # NOTE: sleep/wake skipped for stub training — vLLM V1 sleep/wake can
+        # trigger CUDA illegal memory access on some hardware.  A3 will
+        # re-enable this when real training (LoRA merge + weight sync) is
+        # implemented, since the weight sync path handles engine state properly.
+        # ray.get(runner.sleep_replicas.remote())
         try:
             ray.get(runner.train_step.remote(batch))
         finally:
-            ray.get(runner.wake_replicas.remote())
+            # ray.get(runner.wake_replicas.remote())
+            pass
 
     orchestrator.set_train_fn(_train_bridge)
     orchestrator.start_monitoring()
