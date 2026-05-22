@@ -64,6 +64,7 @@ class TrainingOrchestrator:
         self._training_in_progress: bool = False
 
         self._train_fn: Optional[TrainCallback] = None
+        self._has_external_data: Optional[Callable[[], bool]] = None
         self._monitor_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
@@ -120,13 +121,26 @@ class TrainingOrchestrator:
     # ------------------------------------------------------------------
 
     def should_train(self) -> bool:
-        """Return True when both conditions hold: idle AND enough samples."""
+        """Return True when conditions hold: idle AND (enough samples OR external data)."""
         if self._training_in_progress:
             return False
         with self._lock:
             idle_long_enough = (time.time() - self._last_request_time) >= self.idle_timeout
             enough_samples = len(self._samples) >= self.min_samples
-        return idle_long_enough and enough_samples
+            has_external = self._has_external_data() if self._has_external_data else False
+        return idle_long_enough and (enough_samples or has_external)
+
+    # ------------------------------------------------------------------
+    # External data hook (for GSM8K pre-loaded data, etc.)
+    # ------------------------------------------------------------------
+
+    def set_external_data_check(self, fn: Callable[[], bool]) -> None:
+        """Register a callback that returns True when external training data
+        (e.g. pre-loaded GSM8K prompts) is available.
+
+        When this returns True, the min_samples requirement is bypassed.
+        """
+        self._has_external_data = fn
 
     # ------------------------------------------------------------------
     # Training callback registration

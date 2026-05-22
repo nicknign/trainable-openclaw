@@ -142,13 +142,59 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - `tests/test_a2_integration.py`: 5 个 GPU 集成测试 (serving→503→recovery→inference)
 - **验证**: 24 mock + 5 GPU 全部通过 ✅
 
+### A3：权重同步 + 恢复推理
+
+- **weight sync 机制**: train_step 完成后调用 `actor_rollout_wg.update_weights(global_steps, mode="naive")` 将 actor engine 参数同步到 vLLM rollout engine
+  - Naive mode: `get_per_tensor_param` → `BucketedWeightSender` (ZMQ/IPC) → vLLM 加载
+  - **free_cache_engine=False**: 绕过 vLLM V1 sleep/wake 的 CUDA 崩溃问题。权重同步在-place 进行，不释放/重新分配 GPU 内存
+  - **checkpoint_engine.backend=naive**: 直接 IPC 传输，不需要 NCCL
+  - 两个覆盖在 `run_serve()` 中自动设置
+- `train_step()` 流程: 训练计算(当前stub 3s) → weight sync → 日志记录 sync 耗时
+- `_train_bridge`: 简化为直接调用 `runner.train_step.remote(batch)`，移除 sleep/wake 注释
+- **失败回滚**: orchestrator 的 try/finally 确保训练失败后 `mode=serving`，旧权重仍在使用（因为 sync 只在训练成功后执行）
+- `tests/test_a3_integration.py`: 10 个 GPU 集成测试
+  - 基础: serving 模式验证
+  - Cycle 1: 样本积累 → 空闲触发 → 503 验证 → 恢复 → 推理验证（含乱码检查）
+  - Cycle 2: 多轮训练/推理循环稳定性验证
+  - 最终状态: health check 确认 serving 模式
+
 ### 当前状态
-- serve_ppo 支持 A1+A2：推理 + 空闲检测 + 训练编排
-- 启动命令示例（含 A2 低阈值）:
+- serve_ppo 支持 A1+A2+A3：推理 + 空闲检测 + 训练编排 + 权重同步 + GRPO 训练
+- 启动命令示例（含 GSM8K + 低阈值）:
   ```bash
-  ... +trainer.idle_timeout=5 +trainer.min_samples=2
+  ... +trainer.idle_timeout=5 +trainer.min_samples=1 \
+      +trainer.gsm8k.enabled=true +trainer.gsm8k.num_prompts=4
   ```
-- train_step 为 stub（3s 延迟），真正训练待 A3 实现
+- train_step 为真实 GRPO 训练（生成N个答案→休眠→计算奖励→计算old_log_probs→计算GRPO advantage→更新actor→同步权重→唤醒）
+
+### 2026/05/22 (下午) — A3 架构重构 + GRPO 训练
+
+- **架构重构**: 按用户要求，使用 veRL 的 CheckpointEngineManager 管理 sleep/wake/sync
+  - `ServeRunner.run()`: 新增 CheckpointEngineManager 创建（step 5b）
+  - `train_step()`: 使用 `checkpoint_manager.sleep_replicas()` / `wake_up_replicas()` / `update_weights()` 替代手动 ray.get(server.sleep.remote())
+  - `sleep_replicas()` / `wake_replicas()`: 简化为委托给 checkpoint_manager
+  - CheckpointEngineManager 的 `@auto_await` 处理 Ray actor 内部的 event loop 冲突（thread pool 方式）
+
+- **GRPO 训练实现**:
+  - 生成阶段在 driver (`_train_bridge`) 完成：通过 asyncio.run() 在监控线程中调用 llm_client.generate() 生成 N 个答案
+  - 奖励计算在 driver 完成：解码→提取 GSM8K 答案（`#### <number>`）→与 ground truth 比较
+  - 训练阶段在 Ray actor (`train_step()`) 完成：
+    1. `_build_training_batch()`: 从原始 token 序列构建 DataProto（padding/attention_mask/position_ids/token_level_scores）
+    2. `compute_log_prob()`: actor 前向计算 old_log_probs
+    3. `compute_advantage()`: GRPO group-norm advantage（按 prompt 分组）
+    4. `update_actor()`: FSDP 前向/反向/优化器步骤
+    5. `update_weights()`: 权重同步到 vLLM（naive/IPC）
+    6. `wake_up_replicas()`: 恢复推理服务
+
+- **GSM8K 数据加载**:
+  - `_load_gsm8k_data()`: 从 HuggingFace datasets 加载 GSM8K 训练集
+  - `_extract_gsm8k_answer()`: 从 `#### <number>` 格式提取数值答案
+  - 配置: `+trainer.gsm8k.enabled=true +trainer.gsm8k.num_prompts=8`
+
+- **orchestrator 增强**: 新增 `set_external_data_check()` 回调，允许 GSM8K 等外部数据绕过 min_samples 门控
+  - 24 个已有测试全部通过
+
+- **待办**: 上传到远程 Linux 服务器，启动 serve_ppo + GSM8K GRPO 训练，验证完整闭环
 
 ### 关键路径
 - SFTP: `connect.westd.seetacloud.com:29669` → `/data/wangye/trainable-openclaw`

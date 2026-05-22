@@ -38,12 +38,15 @@ import os
 import socket
 import time
 
+import numpy as np
 import hydra
 import ray
 import uvicorn
 from fastapi import FastAPI
 from omegaconf import OmegaConf
 
+from verl import DataProto
+from verl.checkpoint_engine import CheckpointEngineManager
 from verl.experimental.reward_loop import migrate_legacy_reward_impl
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.main_ppo import TaskRunner
@@ -154,6 +157,19 @@ class ServeRunner(TaskRunner):
         llm_client = self.llm_server_manager.get_client()
         print(f"LLMServerManager ready. Replicas: {len(self.llm_server_manager.server_addresses)}")
 
+        # ---- Step 5b: CheckpointEngineManager (sleep/wake/sync orchestrator) ----
+        from verl.utils.config import omega_conf_to_dataclass
+
+        checkpoint_engine_config = omega_conf_to_dataclass(
+            config.actor_rollout_ref.rollout.checkpoint_engine
+        )
+        self.checkpoint_manager = CheckpointEngineManager(
+            config=checkpoint_engine_config,
+            trainer=self.actor_rollout_wg,
+            replicas=self.llm_server_manager.get_replicas(),
+        )
+        print(f"CheckpointEngineManager ready. Backend: {checkpoint_engine_config.backend}")
+
         # ---- Step 6: Keep engine awake — NO sleep_replicas ----
         # The engine is already awake after init_model.  In the training flow
         # checkpoint_manager.sleep_replicas() is called to free GPU memory,
@@ -186,45 +202,212 @@ class ServeRunner(TaskRunner):
 
     def sleep_replicas(self):
         """Put all rollout replicas to sleep to free GPU memory for training."""
-        import asyncio
-
-        async def _sleep():
-            replicas = self.llm_server_manager.get_replicas()
-            await asyncio.gather(*[r.sleep() for r in replicas])
-
-        asyncio.run(_sleep())
+        self.checkpoint_manager.sleep_replicas()
         logger.info("All rollout replicas asleep")
 
     def wake_replicas(self):
         """Wake all rollout replicas after training to resume inference."""
-        import asyncio
-
-        async def _wake():
-            replicas = self.llm_server_manager.get_replicas()
-            await asyncio.gather(*[r.wake_up() for r in replicas])
-
-        asyncio.run(_wake())
+        self.checkpoint_manager.wake_up_replicas()
         logger.info("All rollout replicas awake")
 
-    def train_step(self, samples: list[dict]) -> None:
-        """Execute one training step.
+    def train_step(self, training_data: dict) -> None:
+        """Execute one GRPO training step using veRLʼs hybrid engine.
 
-        Currently a stub that exercises the sleep→train→wake cycle.
-        Real implementation will invoke veRL's RayPPOTrainer.fit() for
-        a single step, then merge/update weights before waking replicas.
+        Args:
+            training_data: dict with:
+                - prompts: list[list[int]] — replicated prompt token IDs
+                - responses: list[list[int]] — generated response token IDs
+                - rewards: list[float] — per-sample rewards
+                - n_prompts: int — number of unique prompts (for GRPO grouping)
+
+        Follows the RayPPOTrainer.fit() single-step pattern:
+        1. Sleep replicas via CheckpointEngineManager (frees GPU memory)
+        2. Build DataProto batch from prompts + responses + rewards
+        3. Compute old_log_probs via actor forward
+        4. Compute GRPO advantages (group-norm per prompt)
+        5. Update actor (FSDP forward/backward/optimizer step)
+        6. Update weights to rollout via CheckpointEngineManager (naive/IPC)
+        7. Wake replicas via CheckpointEngineManager (restore for serving)
         """
         import time
 
-        logger.info(f"train_step called with {len(samples)} samples (stub)")
-        # Simulate training time so the "training in progress" window is
-        # observable for A2 integration tests.
-        time.sleep(3.0)
-        logger.info("train_step completed (stub)")
-        # TODO: integrate RayPPOTrainer single-step training here
-        # 1. Build DataProto from samples
-        # 2. Compute old_log_probs with rollout engine (wake, forward, sleep)
-        # 3. Run one PPO update step
-        # 4. Merge LoRA / sync weights via CheckpointEngineManager
+        prompts = training_data["prompts"]
+        responses = training_data["responses"]
+        rewards = training_data["rewards"]
+        n_prompts = training_data.get("n_prompts", len(prompts))
+
+        logger.info(
+            "train_step: %d samples (%d prompts x %d responses)",
+            len(responses), n_prompts, len(responses) // max(n_prompts, 1),
+        )
+        t_start = time.time()
+
+        # ---- 1. Sleep replicas (free GPU memory for training) ----
+        logger.info("Sleeping rollout replicas via CheckpointEngineManager...")
+        self.checkpoint_manager.sleep_replicas()
+        logger.info("Replicas asleep — building training batch")
+
+        # ---- 2. Build DataProto batch ----
+        rollout_n = len(responses) // n_prompts
+        batch = self._build_training_batch(prompts, responses, rewards, rollout_n)
+        logger.info("Training batch built: %s", {k: v.shape for k, v in batch.batch.items()})
+
+        # ---- 3. Compute old_log_probs ----
+        from verl.trainer.ppo.ray_trainer import compute_response_mask
+        from verl.utils import tensordict_utils as tu
+        from verl.workers.utils.padding import left_right_2_no_padding
+
+        if "response_mask" not in batch.batch:
+            batch.batch["response_mask"] = compute_response_mask(batch)
+
+        batch_td = batch.to_tensordict()
+        batch_td = left_right_2_no_padding(batch_td)
+        tu.assign_non_tensor(batch_td, calculate_entropy=True, compute_loss=False)
+
+        old_log_prob_output = self.actor_rollout_wg.compute_log_prob(batch_td)
+        logger.info("old_log_probs computed")
+
+        # Merge old_log_probs back
+        batch = batch.union(DataProto.from_tensordict(old_log_prob_output))
+        if "old_log_probs" not in batch.batch:
+            # compute_log_prob returns log_probs, rename
+            batch.batch["old_log_probs"] = old_log_prob_output["log_probs"]
+
+        # ---- 4. Compute GRPO advantages ----
+        from verl.trainer.ppo.ray_trainer import compute_advantage
+        from verl.trainer.ppo.core_algos import AdvantageEstimator
+
+        # Create uid for group-based advantage: same uid = same prompt group
+        batch.non_tensor_batch["uid"] = np.array(
+            [f"p{i // rollout_n}" for i in range(len(responses))], dtype=object
+        )
+        batch = compute_advantage(
+            batch,
+            adv_estimator=AdvantageEstimator.GRPO,
+            gamma=1.0,
+            lam=1.0,
+            num_repeat=rollout_n,
+            norm_adv_by_std_in_grpo=True,
+        )
+        logger.info("GRPO advantages computed")
+
+        # ---- 5. Update actor ----
+        from verl.utils.tensordict_utils import assign_non_tensor
+
+        batch.meta_info["multi_turn"] = False
+        batch.meta_info["temperature"] = self._rollout_config.get("temperature", 1.0)
+        batch_td = batch.to_tensordict()
+        batch_td = left_right_2_no_padding(batch_td)
+
+        ppo_mini_batch_size = len(responses)
+        assign_non_tensor(
+            batch_td,
+            calculate_entropy=True,
+            global_batch_size=ppo_mini_batch_size,
+            mini_batch_size=ppo_mini_batch_size,
+            epochs=1,
+            seed=42,
+            dataloader_kwargs={"shuffle": False},
+        )
+
+        actor_output = self.actor_rollout_wg.update_actor(batch_td)
+        logger.info("Actor update completed")
+
+        # ---- 6. Update weights (sync actor → rollout via naive IPC) ----
+        global_steps = getattr(self, "_global_steps", 0) + 1
+        self._global_steps = global_steps
+        logger.info("Syncing weights to rollout (global_steps=%d)", global_steps)
+        t_sync = time.time()
+        self.checkpoint_manager.update_weights(global_steps)
+        logger.info("Weight sync done in %.1fs", time.time() - t_sync)
+
+        # ---- 7. Wake replicas (restore vLLM engine for serving) ----
+        logger.info("Waking rollout replicas via CheckpointEngineManager...")
+        self.checkpoint_manager.wake_up_replicas()
+        logger.info("Replicas awake — resuming serving")
+
+        logger.info("train_step completed in %.1fs", time.time() - t_start)
+
+    # ------------------------------------------------------------------
+    # Batch construction helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_training_batch(
+        prompts: list[list[int]],
+        responses: list[list[int]],
+        rewards: list[float],
+        rollout_n: int,
+    ) -> DataProto:
+        """Build a DataProto training batch from raw token sequences.
+
+        Constructs input_ids, attention_mask, position_ids, response_mask,
+        and token_level_scores from prompt/response token lists.
+        """
+        import torch
+
+        n = len(prompts)
+
+        # Pad prompts (left-padding to match veRL convention)
+        max_prompt_len = max(len(p) for p in prompts)
+        padded_prompts = []
+        for p in prompts:
+            pad_len = max_prompt_len - len(p)
+            padded_prompts.append([0] * pad_len + p)
+
+        # Pad responses (right-padding)
+        max_resp_len = max(len(r) for r in responses)
+        padded_responses = []
+        for r in responses:
+            pad_len = max_resp_len - len(r)
+            padded_responses.append(r + [0] * pad_len)
+
+        total_len = max_prompt_len + max_resp_len
+        input_ids = torch.zeros(n, total_len, dtype=torch.long)
+        attention_mask = torch.zeros(n, total_len, dtype=torch.long)
+        position_ids = torch.zeros(n, total_len, dtype=torch.long)
+
+        prompt_tensor = torch.tensor(padded_prompts, dtype=torch.long)
+        response_tensor = torch.tensor(padded_responses, dtype=torch.long)
+
+        for i in range(n):
+            # Prompt: left-padded
+            prompt = prompt_tensor[i]
+            input_ids[i, :max_prompt_len] = prompt
+            prompt_mask = prompt != 0
+            attention_mask[i, :max_prompt_len] = prompt_mask
+            position_ids[i, :max_prompt_len] = torch.cumsum(prompt_mask, dim=0) - prompt_mask.long()
+
+            # Response: after prompt
+            resp = response_tensor[i]
+            input_ids[i, max_prompt_len:] = resp
+            resp_mask = resp != 0
+            attention_mask[i, max_prompt_len:] = resp_mask
+            position_ids[i, max_prompt_len:] = position_ids[i, max_prompt_len - 1] + torch.cumsum(resp_mask, dim=0) + (1 - resp_mask.long())
+
+        # Token-level scores: broadcast reward to each response token
+        token_level_scores = torch.zeros(n, max_resp_len)
+        for i, (r, reward) in enumerate(zip(responses, rewards)):
+            resp_len = len(r)
+            token_level_scores[i, :resp_len] = reward
+
+        # UIDs for group advantage
+        uid = np.array([f"p{i // rollout_n}_r{i}" for i in range(n)], dtype=object)
+
+        batch_data = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "position_ids": position_ids,
+            "responses": response_tensor,
+            "response_mask": response_tensor != 0,
+            "token_level_scores": token_level_scores,
+        }
+        non_tensor_data = {
+            "uid": uid,
+            "data_source": np.array(["gsm8k"] * n, dtype=object),
+        }
+
+        return DataProto.from_dict(tensors=batch_data, non_tensors=non_tensor_data)
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +427,72 @@ def main(config):
     run_serve(config)
 
 
+def _extract_gsm8k_answer(text: str) -> float | None:
+    """Extract the final numeric answer from a GSM8K-style response.
+
+    Looks for ``#### <number>`` at the end of the text and returns the
+    number as a float, or None if no answer delimiter is found.
+    """
+    if "####" not in text:
+        return None
+    answer_part = text.split("####")[-1].strip()
+    import re
+
+    numbers = re.findall(r"-?\d+(?:,\d{3})*(?:\.\d+)?", answer_part)
+    if not numbers:
+        return None
+    return float(numbers[-1].replace(",", ""))
+
+
+def _load_gsm8k_data(config, tokenizer) -> list[dict]:
+    """Load a batch of GSM8K prompts for GRPO training validation.
+
+    Returns a list of dicts with ``prompt_ids`` and ``ground_truth``.
+    Returns an empty list if the dataset cannot be loaded.
+    """
+    try:
+        from datasets import load_dataset
+        from verl.utils import hf_tokenizer
+    except Exception:
+        logger.warning("Cannot load GSM8K data — datasets library unavailable")
+        return []
+
+    gsm8k_config = config.trainer.get("gsm8k", {})
+    if not gsm8k_config.get("enabled", False):
+        logger.info("GSM8K training data loading disabled (trainer.gsm8k.enabled=false)")
+        return []
+
+    num_prompts = gsm8k_config.get("num_prompts", 8)
+    split = gsm8k_config.get("split", "train")
+    prompt_template = gsm8k_config.get(
+        "prompt_template",
+        "{question}\nLet's think step by step.\n",
+    )
+
+    try:
+        dataset = load_dataset("openai/gsm8k", "main", split=split)
+        if num_prompts < len(dataset):
+            dataset = dataset.select(range(num_prompts))
+    except Exception as e:
+        logger.warning("Failed to load GSM8K dataset: %s", e)
+        return []
+
+    data = []
+    for row in dataset:
+        question = row["question"]
+        # Extract ground truth number from answer (e.g., "#### 42")
+        answer_text = row["answer"]
+        gt = _extract_gsm8k_answer(answer_text)
+
+        prompt_text = prompt_template.format(question=question)
+        prompt_ids = tokenizer.encode(prompt_text)
+
+        data.append({"prompt_ids": prompt_ids, "ground_truth": gt, "question": question})
+
+    logger.info("Loaded %d GSM8K prompts for training (split=%s)", len(data), split)
+    return data
+
+
 def run_serve(config) -> None:
     """Initialize Ray, create ServeRunner actor, and start FastAPI on the driver."""
     from verl.utils.device import is_cuda_available
@@ -254,6 +503,12 @@ def run_serve(config) -> None:
     if load_format is None or load_format == "dummy":
         config.actor_rollout_ref.rollout.load_format = "auto"
         print(f"[serve_ppo] load_format={load_format or 'default'} → auto (serve-only mode)")
+
+    # Ensure naive checkpoint engine backend (direct IPC, no NCCL needed)
+    ckpt_backend = OmegaConf.select(config, "actor_rollout_ref.rollout.checkpoint_engine.backend")
+    if ckpt_backend is None or ckpt_backend != "naive":
+        config.actor_rollout_ref.rollout.checkpoint_engine.backend = "naive"
+        print(f"[serve_ppo] checkpoint_engine.backend={ckpt_backend or 'default'} → naive")
 
     # ---- Ray init ----
     if not ray.is_initialized():
@@ -299,22 +554,94 @@ def run_serve(config) -> None:
         min_samples=config.trainer.get("min_samples", 16),
     )
 
+    # ---- A3: Pre-load GSM8K training data (for GRPO training validation) ----
+    gsm8k_data = _load_gsm8k_data(config, tokenizer)
+
+    # Wire external-data check so GSM8K prompts bypass the min_samples gate
+    orchestrator.set_external_data_check(lambda: bool(gsm8k_data))
+
     def _train_bridge(samples):
-        """Bridge: orchestrator runs in thread, training runs on Ray actor."""
-        batch = [
-            {"prompt_ids": s.prompt_ids, "response_ids": s.response_ids, "metadata": s.metadata}
-            for s in samples
-        ]
-        # NOTE: sleep/wake skipped for stub training — vLLM V1 sleep/wake can
-        # trigger CUDA illegal memory access on some hardware.  A3 will
-        # re-enable this when real training (LoRA merge + weight sync) is
-        # implemented, since the weight sync path handles engine state properly.
-        # ray.get(runner.sleep_replicas.remote())
-        try:
-            ray.get(runner.train_step.remote(batch))
-        finally:
-            # ray.get(runner.wake_replicas.remote())
-            pass
+        """Bridge: orchestrator thread → generate responses → train on Ray actor.
+
+        Runs in the orchestrator monitor thread (not the uvicorn event loop),
+        so asyncio.run() works for calling the async LLM client.
+        """
+        import asyncio
+        from uuid import uuid4
+
+        rollout_config = info["rollout_config"]
+        rollout_n = rollout_config.get("n", 4)
+
+        # Build prompt replicas
+        all_prompts = []
+        all_ground_truths = []
+
+        if gsm8k_data:
+            # Use pre-loaded GSM8K data for training
+            for item in gsm8k_data:
+                for _ in range(rollout_n):
+                    all_prompts.append(item["prompt_ids"])
+                    all_ground_truths.append(item["ground_truth"])
+            n_prompts = len(gsm8k_data)
+        elif samples:
+            # Fall back to accumulated API samples
+            for s in samples:
+                for _ in range(rollout_n):
+                    all_prompts.append(s.prompt_ids)
+                    all_ground_truths.append(s.metadata.get("ground_truth"))
+            n_prompts = len(samples)
+        else:
+            logger.warning("No training data available — skipping training")
+            return
+
+        logger.info(
+            "Generating %d responses (%d prompts x %d)...",
+            len(all_prompts), n_prompts, rollout_n,
+        )
+
+        # Generate N responses per prompt using vLLM servers
+        sampling_params = {
+            "temperature": rollout_config.get("temperature", 1.0),
+            "top_p": rollout_config.get("top_p", 1.0),
+            "max_tokens": rollout_config.get("response_length", 2048),
+        }
+
+        async def _generate_all():
+            return await asyncio.gather(*[
+                llm_client.generate(
+                    request_id=uuid4().hex,
+                    prompt_ids=prompt_ids,
+                    sampling_params=sampling_params,
+                )
+                for prompt_ids in all_prompts
+            ])
+
+        outputs = asyncio.run(_generate_all())
+        all_responses = [list(o.token_ids) for o in outputs]
+
+        # Compute rewards (GSM8K answer extraction)
+        rewards = []
+        for response_ids, gt in zip(all_responses, all_ground_truths):
+            if gt is not None:
+                response_text = tokenizer.decode(response_ids, skip_special_tokens=True)
+                extracted = _extract_gsm8k_answer(response_text)
+                reward = 1.0 if extracted is not None and abs(extracted - gt) < 1e-6 else 0.0
+            else:
+                reward = 0.0
+            rewards.append(reward)
+
+        logger.info(
+            "Rewards: mean=%.3f, %d/%d correct",
+            sum(rewards) / len(rewards), sum(r > 0.5 for r in rewards), len(rewards),
+        )
+
+        training_data = {
+            "prompts": all_prompts,
+            "responses": all_responses,
+            "rewards": rewards,
+            "n_prompts": n_prompts,
+        }
+        ray.get(runner.train_step.remote(training_data))
 
     orchestrator.set_train_fn(_train_bridge)
     orchestrator.start_monitoring()
