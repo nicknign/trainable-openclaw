@@ -201,3 +201,40 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 模型目录: `/data/models/Qwen3-4B`
 - conda: `/data/anaconda3`
 - verl editable install: `/root/autodl-tmp/wangye/trainable-openclaw/verl-main-0516`（与 `/data/wangye/` 同文件系统，文件一致）
+
+---
+
+## 2026/05/25
+
+### GRPO Bug Fix: Prompt Template 缺少 `####` 指令
+
+- **根因**: `_load_gsm8k_data()` 的默认 prompt template 为 `"{question}\nLet's think step by step.\n"`，没有告知模型输出 `#### <answer>` 格式
+- **影响**: `_extract_gsm8k_answer()` 找不到 `####` 分隔符 → 所有 reward=0 → GRPO advantage 始终为 0 → loss=0 → 模型永远不学习
+- **修复**: prompt template 改为 `"{question}\nLet's think step by step and output the final answer after \"####\".\n"`
+- **验证**: rewards 从恒为 0/16 提升到 8/16~4/16（但还波动）
+
+### GRPO 遗留问题
+
+- **loss 恒为 0**: 即使有 non-zero rewards，loss 仍为 0.0000
+  - 分析: 当组内 4 个回答都正确/都错误时，GRPO advantage=0（组内 reward 无方差）
+  - `compute_grpo_outcome_advantage` 在 `core_algos.py:304` 用 `token_level_rewards.sum(dim=-1)` 计算 scores，不同回答长度导致 score 差异 → advantage 非零但信号来自长度而非正确性
+- **max_tokens 不足**: 原默认 1024，模型推理未完成就被截断 → `####` 未输出
+  - 修复: max_tokens 默认值 1024→2048，orchestrator 内 `max(rollout_config.response_length, 2048)`
+- **已知限制**: 模型不总是输出 `####` 格式，温度 1.0 但同组内回答结果趋同
+
+### Event Loop Fix: asyncio.to_thread
+
+- **问题**: `ray.get(runner.train_step.remote(...))` 在训练监控协程中直接调用 → 阻塞 uvicorn event loop → 训练期间 HTTP 请求全部挂死（连 503 都返回不了）
+- **修复**: 改为 `await asyncio.to_thread(ray.get, runner.train_step.remote(...))`，ray.get 在独立线程执行，event loop 不阻塞
+- **验证**: A2/A3 测试中训练期间 503 正常返回
+
+### 集成测试全部通过 (59/59)
+
+- 新增测试记录文件: `tests/TEST_RECORD.md`
+- 修复测试超时: `test_a2` 的 `TRAINING_TIME` 从 8s→90s, `test_a3` 从 10s→120s
+- 测试服务器配置: `scripts/run_serve_ppo_test.sh` (idle_timeout=5, min_samples=2, train_steps_per_cycle=1, gsm8k=false)
+
+### Git 状态
+- 未提交: `serve_ppo.py` (prompt template fix + max_tokens + asyncio.to_thread + debug logging)
+- 未提交: `test_a2_integration.py`, `test_a3_integration.py` (TRAINING_TIME 修复)
+- 新增未跟踪: `tests/TEST_RECORD.md`

@@ -271,7 +271,7 @@ class ServeRunner(TaskRunner):
                     "url": vllm_url,
                     "model": model_path,
                     "messages": [{"role": "user", "content": prompt_text}],
-                    "max_tokens": sampling_params.get("max_tokens", 1024),
+                    "max_tokens": sampling_params.get("max_tokens", 2048),
                     "temperature": sampling_params.get("temperature", 1.0),
                     "top_p": sampling_params.get("top_p", 1.0),
                     "idx": i * rollout_n + j + 1,
@@ -318,19 +318,31 @@ class ServeRunner(TaskRunner):
         responses = []
         rewards = []
         all_ground_truths = [gt for gt in ground_truths for _ in range(rollout_n)]
-        for prompt_ids, response_text, gt in zip(all_prompt_ids, all_responses_text, all_ground_truths):
+        for i, (prompt_ids, response_text, gt) in enumerate(zip(all_prompt_ids, all_responses_text, all_ground_truths)):
             response_ids = self._tokenizer.encode(response_text, add_special_tokens=False)
             responses.append(response_ids)
             if gt is not None:
                 extracted = _extract_gsm8k_answer(response_text)
                 reward = 1.0 if extracted is not None and abs(extracted - gt) < 1e-6 else 0.0
+                # Per-sample debug: show first 2 samples per prompt group
+                group_idx = i // rollout_n
+                pos_in_group = i % rollout_n
+                has_hash = "####" in response_text
+                if pos_in_group < 2:
+                    snippet = response_text[-200:].replace("\n", "\\n")
+                    _log(f"  Reward[{i}] p{group_idx}/{pos_in_group}: extracted={extracted}, gt={gt}, reward={reward}, has_####={has_hash}, tail={{{snippet}}}")
             else:
                 reward = 0.0
             rewards.append(reward)
 
         n_correct = sum(r > 0.5 for r in rewards)
         reward_mean = sum(rewards) / len(rewards) if rewards else 0.0
-        _log(f"Rewards: mean={reward_mean:.3f}, {n_correct}/{len(rewards)} correct")
+        # Per-group reward breakdown
+        per_group_rewards = []
+        for g in range(n_prompts):
+            gr = rewards[g * rollout_n : (g + 1) * rollout_n]
+            per_group_rewards.append(f"p{g}=[{','.join(f'{r:.0f}' for r in gr)}]")
+        _log(f"Rewards: mean={reward_mean:.3f}, {n_correct}/{len(rewards)} correct | groups: {' '.join(per_group_rewards)}")
         logger.info("Rewards: mean=%.3f, %d/%d correct", reward_mean, n_correct, len(rewards))
 
         # ---- 3. Sleep replicas (free GPU memory for training) ----
@@ -384,6 +396,14 @@ class ServeRunner(TaskRunner):
         )
         _log("GRPO advantages computed")
         logger.info("GRPO advantages computed")
+        # Debug: advantage statistics
+        if "advantages" in batch.batch:
+            adv = batch.batch["advantages"]
+            adv_nonzero = (adv.abs() > 1e-8).sum().item()
+            _log(f"  Advantage stats: min={adv.min().item():.4f}, max={adv.max().item():.4f}, nonzero={adv_nonzero}/{adv.numel()}, mean_abs={adv.abs().mean().item():.6f}")
+        if "returns" in batch.batch:
+            ret = batch.batch["returns"]
+            _log(f"  Returns stats: min={ret.min().item():.4f}, max={ret.max().item():.4f}, mean={ret.mean().item():.4f}")
 
         # ---- 7. Update actor ----
         from verl.utils.tensordict_utils import assign_non_tensor
@@ -566,7 +586,7 @@ def _load_gsm8k_data(config, tokenizer) -> list[dict]:
     split = gsm8k_config.get("split", "train")
     prompt_template = gsm8k_config.get(
         "prompt_template",
-        "{question}\nLet's think step by step.\n",
+        "{question}\nLet's think step by step and output the final answer after \"####\".\n",
     )
 
     try:
@@ -732,7 +752,7 @@ def run_serve(config) -> None:
                 sampling_params = {
                     "temperature": rollout_config.get("temperature", 1.0),
                     "top_p": rollout_config.get("top_p", 1.0),
-                    "max_tokens": rollout_config.get("response_length", 2048),
+                    "max_tokens": max(rollout_config.get("response_length", 1024), 2048),
                 }
 
                 for step in range(train_steps_per_cycle):
@@ -767,7 +787,10 @@ def run_serve(config) -> None:
                         "sampling_params": sampling_params,
                     }
 
-                    metrics = ray.get(runner.train_step.remote(training_data))
+                    # Use asyncio.to_thread to avoid blocking the uvicorn event loop
+                    metrics = await asyncio.to_thread(
+                        ray.get, runner.train_step.remote(training_data)
+                    )
 
                     step_time = _time.time() - t_step
                     all_step_metrics.append(metrics)

@@ -100,7 +100,7 @@ for i in range(SAMPLE_COUNT):
 # ---------------------------------------------------------------------------
 
 IDLE_TIMEOUT = 5  # Must match server config
-TRAINING_TIME = 8  # sleep(3) in train_step + overhead
+TRAINING_TIME = 90  # generation (~36s) + sleep + train + sync + overhead
 
 
 @T(f"Training triggered after idle (wait {IDLE_TIMEOUT+2}s)")

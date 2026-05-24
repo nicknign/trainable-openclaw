@@ -71,7 +71,7 @@ print(f"{'='*60}\n")
 
 MSG = {"role": "user", "content": "Say just one word."}
 IDLE_TIMEOUT = 5      # Must match server config
-TRAINING_TIME = 10     # sleep(3) in train_step + weight sync + overhead
+TRAINING_TIME = 120    # generation + sleep + train + sync + overhead per cycle
 CYCLE_COUNT = 2        # Test multiple train-infer cycles
 
 
