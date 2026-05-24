@@ -235,6 +235,13 @@ class ServeRunner(TaskRunner):
         import time
         import urllib.request
 
+        # ---- Logging: write directly to file (Ray actor stdout/stderr are buffered) ----
+        TRAIN_LOG = "/tmp/serve_ppo_train.log"
+        def _log(msg: str) -> None:
+            ts = time.strftime("%Y-%m-%d %H:%M:%S")
+            with open(TRAIN_LOG, "a") as lf:
+                lf.write(f"[{ts}] [TRAIN] {msg}\n")
+
         prompts = training_data["prompts"]
         ground_truths = training_data["ground_truths"]
         rollout_n = training_data["rollout_n"]
@@ -242,6 +249,7 @@ class ServeRunner(TaskRunner):
         n_prompts = len(prompts)
         total_samples = n_prompts * rollout_n
 
+        _log(f"train_step start: {n_prompts} prompts x {rollout_n} = {total_samples} total")
         logger.info(
             "train_step: %d prompts x %d responses = %d total",
             n_prompts, rollout_n, total_samples,
@@ -277,6 +285,7 @@ class ServeRunner(TaskRunner):
                 response_text = data["choices"][0]["message"]["content"]
                 all_prompt_ids.append(prompt_ids)
                 all_responses_text.append(response_text)
+                _log(f"Gen {i * rollout_n + j + 1}/{total_samples}: prompt={len(prompt_ids)} resp={len(response_text)}")
                 logger.info(
                     "Generated %d/%d: prompt_len=%d resp_len=%d",
                     i * rollout_n + j + 1, total_samples,
@@ -284,6 +293,7 @@ class ServeRunner(TaskRunner):
                 )
 
         t_gen = time.time()
+        _log(f"Generation done in {t_gen - t_start:.1f}s")
         logger.info("Generation done in %.1fs", t_gen - t_start)
 
         # ---- 2. Compute rewards (GSM8K answer matching) ----
@@ -302,15 +312,19 @@ class ServeRunner(TaskRunner):
 
         n_correct = sum(r > 0.5 for r in rewards)
         reward_mean = sum(rewards) / len(rewards) if rewards else 0.0
+        _log(f"Rewards: mean={reward_mean:.3f}, {n_correct}/{len(rewards)} correct")
         logger.info("Rewards: mean=%.3f, %d/%d correct", reward_mean, n_correct, len(rewards))
 
         # ---- 3. Sleep replicas (free GPU memory for training) ----
+        _log("Sleeping replicas via CheckpointEngineManager...")
         self.checkpoint_manager.sleep_replicas()
+        _log("Replicas asleep")
 
         # ---- 4. Build DataProto batch ----
         batch = self._build_training_batch(all_prompt_ids, responses, rewards, rollout_n)
         batch.meta_info["temperature"] = sampling_params.get("temperature", 1.0)
         batch.meta_info["multi_turn"] = False
+        _log(f"Training batch built: { {k: v.shape for k, v in batch.batch.items()} }")
         logger.info("Training batch built: %s", {k: v.shape for k, v in batch.batch.items()})
 
         # ---- 5. Compute old_log_probs ----
@@ -326,6 +340,7 @@ class ServeRunner(TaskRunner):
         tu.assign_non_tensor(batch_td, calculate_entropy=True, compute_loss=False)
 
         old_log_prob_output = self.actor_rollout_wg.compute_log_prob(batch_td)
+        _log("old_log_probs computed")
         logger.info("old_log_probs computed")
 
         from verl.workers.utils.padding import no_padding_2_padding
@@ -349,6 +364,7 @@ class ServeRunner(TaskRunner):
             num_repeat=rollout_n,
             norm_adv_by_std_in_grpo=True,
         )
+        _log("GRPO advantages computed")
         logger.info("GRPO advantages computed")
 
         # ---- 7. Update actor ----
@@ -369,6 +385,7 @@ class ServeRunner(TaskRunner):
 
         actor_output = self.actor_rollout_wg.update_actor(batch_td)
         actor_loss = float(actor_output.get("loss", 0.0)) if actor_output is not None else 0.0
+        _log(f"Actor update completed — loss={actor_loss:.4f}")
         logger.info("Actor update completed — loss=%.4f", actor_loss)
 
         # ---- 8. Update weights (sync actor → rollout via naive IPC) ----
@@ -376,9 +393,15 @@ class ServeRunner(TaskRunner):
         self._global_steps = global_steps
         t_sync = time.time()
         self.checkpoint_manager.update_weights(global_steps)
+        _log(f"Weight sync done in {time.time() - t_sync:.1f}s")
         logger.info("Weight sync done in %.1fs", time.time() - t_sync)
 
+        # Wake replicas
+        self.checkpoint_manager.wake_up_replicas()
+        _log("Replicas awakened — serving resumed")
+
         total_time = time.time() - t_start
+        _log(f"train_step completed in {total_time:.1f}s — reward={reward_mean:.3f} ({n_correct}/{len(rewards)}), loss={actor_loss:.4f}")
         logger.info("train_step completed in %.1fs", total_time)
 
         return {
