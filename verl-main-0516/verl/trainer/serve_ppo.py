@@ -393,12 +393,8 @@ class ServeRunner(TaskRunner):
         self._global_steps = global_steps
         t_sync = time.time()
         self.checkpoint_manager.update_weights(global_steps)
-        _log(f"Weight sync done in {time.time() - t_sync:.1f}s")
+        _log(f"Weight sync done in {time.time() - t_sync:.1f}s (wake handled internally)")
         logger.info("Weight sync done in %.1fs", time.time() - t_sync)
-
-        # Wake replicas
-        self.checkpoint_manager.wake_up_replicas()
-        _log("Replicas awakened — serving resumed")
 
         total_time = time.time() - t_start
         _log(f"train_step completed in {total_time:.1f}s — reward={reward_mean:.3f} ({n_correct}/{len(rewards)}), loss={actor_loss:.4f}")
