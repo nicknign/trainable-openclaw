@@ -663,9 +663,12 @@ def run_serve(config) -> None:
             if elapsed < _orch_state["idle_timeout"]:
                 continue
 
-            # Check sample threshold (skip if GSM8K data available)
+            # Check sample threshold
+            # GSM8K data can bypass min_samples only on first use;
+            # after that, require API samples to prevent infinite re-trigger
             n_samples = len(_orch_state["samples"])
-            if not gsm8k_data and n_samples < _orch_state["min_samples"]:
+            has_gsm8k = gsm8k_data and not _orch_state.get("_gsm8k_exhausted", False)
+            if not has_gsm8k and n_samples < _orch_state["min_samples"]:
                 continue
 
             # ---- Trigger training ----
@@ -737,6 +740,13 @@ def run_serve(config) -> None:
                 _orch_state["mode"] = "serving"
                 _orch_state["training_in_progress"] = False
                 _orch_state["last_request_time"] = _time.time()
+                # Mark GSM8K exhausted if it was used without new API samples,
+                # preventing repeated training on the same data with no new requests
+                if gsm8k_data and len(samples) == 0:
+                    _orch_state["_gsm8k_exhausted"] = True
+                    logger.info("GSM8K data exhausted; future training requires API samples")
+                    print("[TRAINING] GSM8K data exhausted — future training requires API samples",
+                          file=sys.stderr, flush=True)
 
     _app_state["record_request"] = _record_request_async
     _app_state["orch_state"] = _orch_state
