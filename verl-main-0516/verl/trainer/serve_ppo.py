@@ -36,6 +36,7 @@ Architecture:
 import logging
 import os
 import socket
+import sys
 import time
 
 import numpy as np
@@ -111,6 +112,7 @@ class ServeRunner(TaskRunner):
         from verl.utils import hf_tokenizer
 
         tokenizer = hf_tokenizer(local_path, trust_remote_code=config.data.get("trust_remote_code", False))
+        self._tokenizer = tokenizer
 
         # ---- Step 3: Resource pool ----
         resource_pool_manager = self.init_resource_pool_mgr(config)
@@ -185,6 +187,8 @@ class ServeRunner(TaskRunner):
             "tokenizer_path": local_path,
             "rollout_config": OmegaConf.to_container(config.actor_rollout_ref.rollout, resolve=True),
             "gpu_count": gpu_count,
+            "server_addresses": self.llm_server_manager.server_addresses,
+            "model_path": local_path,
         }
 
     def get_llm_client(self, _config=None):
@@ -210,49 +214,106 @@ class ServeRunner(TaskRunner):
         self.checkpoint_manager.wake_up_replicas()
         logger.info("All rollout replicas awake")
 
-    def train_step(self, training_data: dict) -> None:
-        """Execute one GRPO training step using veRLʼs hybrid engine.
+    def train_step(self, training_data: dict) -> dict:
+        """Execute one GRPO training step — generation, reward, and training.
+
+        All generation and reward computation happens inside the Ray actor
+        (not on the driver), avoiding the uvicorn event-loop deadlock.
 
         Args:
             training_data: dict with:
-                - prompts: list[list[int]] — replicated prompt token IDs
-                - responses: list[list[int]] — generated response token IDs
-                - rewards: list[float] — per-sample rewards
-                - n_prompts: int — number of unique prompts (for GRPO grouping)
+                - prompts: list[list[int]] — prompt token IDs (one per unique prompt)
+                - ground_truths: list[float|None] — correct answer per prompt
+                - rollout_n: int — responses per prompt
+                - sampling_params: dict — temperature, max_tokens, etc.
 
-        Follows the RayPPOTrainer.fit() single-step pattern:
-        1. Sleep replicas via CheckpointEngineManager (frees GPU memory)
-        2. Build DataProto batch from prompts + responses + rewards
-        3. Compute old_log_probs via actor forward
-        4. Compute GRPO advantages (group-norm per prompt)
-        5. Update actor (FSDP forward/backward/optimizer step)
-        6. Update weights to rollout via CheckpointEngineManager (naive/IPC)
-        7. Wake replicas via CheckpointEngineManager (restore for serving)
+        Returns:
+            dict with reward_mean, reward_correct, reward_total, actor_loss,
+            grad_norm, step_time_seconds.
         """
+        import json
         import time
+        import urllib.request
 
         prompts = training_data["prompts"]
-        responses = training_data["responses"]
-        rewards = training_data["rewards"]
-        n_prompts = training_data.get("n_prompts", len(prompts))
+        ground_truths = training_data["ground_truths"]
+        rollout_n = training_data["rollout_n"]
+        sampling_params = training_data["sampling_params"]
+        n_prompts = len(prompts)
+        total_samples = n_prompts * rollout_n
 
         logger.info(
-            "train_step: %d samples (%d prompts x %d responses)",
-            len(responses), n_prompts, len(responses) // max(n_prompts, 1),
+            "train_step: %d prompts x %d responses = %d total",
+            n_prompts, rollout_n, total_samples,
         )
         t_start = time.time()
 
-        # ---- 1. Sleep replicas (free GPU memory for training) ----
-        logger.info("Sleeping rollout replicas via CheckpointEngineManager...")
-        self.checkpoint_manager.sleep_replicas()
-        logger.info("Replicas asleep — building training batch")
+        # ---- 1. Generate responses via vLLM HTTP API ----
+        vllm_addr = self.llm_server_manager.server_addresses[0]
+        vllm_url = f"http://{vllm_addr}/v1/chat/completions"
+        model_path = self._local_path
 
-        # ---- 2. Build DataProto batch ----
-        rollout_n = len(responses) // n_prompts
-        batch = self._build_training_batch(prompts, responses, rewards, rollout_n)
+        all_prompt_ids = []
+        all_responses_text = []
+
+        for i, prompt_ids in enumerate(prompts):
+            prompt_text = self._tokenizer.decode(prompt_ids, skip_special_tokens=False)
+            for j in range(rollout_n):
+                req_data = json.dumps({
+                    "model": model_path,
+                    "messages": [{"role": "user", "content": prompt_text}],
+                    "max_tokens": sampling_params.get("max_tokens", 1024),
+                    "temperature": sampling_params.get("temperature", 1.0),
+                    "top_p": sampling_params.get("top_p", 1.0),
+                }).encode()
+                req = urllib.request.Request(
+                    vllm_url, data=req_data,
+                    headers={"Content-Type": "application/json"},
+                )
+                resp = urllib.request.urlopen(req, timeout=180)
+                if resp.status != 200:
+                    raise RuntimeError(f"vLLM HTTP {resp.status}: {resp.read()[:500]}")
+                data = json.loads(resp.read())
+                response_text = data["choices"][0]["message"]["content"]
+                all_prompt_ids.append(prompt_ids)
+                all_responses_text.append(response_text)
+                logger.info(
+                    "Generated %d/%d: prompt_len=%d resp_len=%d",
+                    i * rollout_n + j + 1, total_samples,
+                    len(prompt_ids), len(response_text),
+                )
+
+        t_gen = time.time()
+        logger.info("Generation done in %.1fs", t_gen - t_start)
+
+        # ---- 2. Compute rewards (GSM8K answer matching) ----
+        responses = []
+        rewards = []
+        all_ground_truths = [gt for gt in ground_truths for _ in range(rollout_n)]
+        for prompt_ids, response_text, gt in zip(all_prompt_ids, all_responses_text, all_ground_truths):
+            response_ids = self._tokenizer.encode(response_text, add_special_tokens=False)
+            responses.append(response_ids)
+            if gt is not None:
+                extracted = _extract_gsm8k_answer(response_text)
+                reward = 1.0 if extracted is not None and abs(extracted - gt) < 1e-6 else 0.0
+            else:
+                reward = 0.0
+            rewards.append(reward)
+
+        n_correct = sum(r > 0.5 for r in rewards)
+        reward_mean = sum(rewards) / len(rewards) if rewards else 0.0
+        logger.info("Rewards: mean=%.3f, %d/%d correct", reward_mean, n_correct, len(rewards))
+
+        # ---- 3. Sleep replicas (free GPU memory for training) ----
+        self.checkpoint_manager.sleep_replicas()
+
+        # ---- 4. Build DataProto batch ----
+        batch = self._build_training_batch(all_prompt_ids, responses, rewards, rollout_n)
+        batch.meta_info["temperature"] = sampling_params.get("temperature", 1.0)
+        batch.meta_info["multi_turn"] = False
         logger.info("Training batch built: %s", {k: v.shape for k, v in batch.batch.items()})
 
-        # ---- 3. Compute old_log_probs ----
+        # ---- 5. Compute old_log_probs ----
         from verl.trainer.ppo.ray_trainer import compute_response_mask
         from verl.utils import tensordict_utils as tu
         from verl.workers.utils.padding import left_right_2_no_padding
@@ -267,19 +328,18 @@ class ServeRunner(TaskRunner):
         old_log_prob_output = self.actor_rollout_wg.compute_log_prob(batch_td)
         logger.info("old_log_probs computed")
 
-        # Merge old_log_probs back
-        batch = batch.union(DataProto.from_tensordict(old_log_prob_output))
-        if "old_log_probs" not in batch.batch:
-            # compute_log_prob returns log_probs, rename
-            batch.batch["old_log_probs"] = old_log_prob_output["log_probs"]
+        from verl.workers.utils.padding import no_padding_2_padding
 
-        # ---- 4. Compute GRPO advantages ----
+        log_probs = old_log_prob_output["log_probs"]
+        old_log_probs = no_padding_2_padding(log_probs, batch_td)
+        batch.batch["old_log_probs"] = old_log_probs.float()
+
+        # ---- 6. Compute GRPO advantages ----
         from verl.trainer.ppo.ray_trainer import compute_advantage
         from verl.trainer.ppo.core_algos import AdvantageEstimator
 
-        # Create uid for group-based advantage: same uid = same prompt group
         batch.non_tensor_batch["uid"] = np.array(
-            [f"p{i // rollout_n}" for i in range(len(responses))], dtype=object
+            [f"p{i // rollout_n}" for i in range(total_samples)], dtype=object
         )
         batch = compute_advantage(
             batch,
@@ -291,42 +351,43 @@ class ServeRunner(TaskRunner):
         )
         logger.info("GRPO advantages computed")
 
-        # ---- 5. Update actor ----
+        # ---- 7. Update actor ----
         from verl.utils.tensordict_utils import assign_non_tensor
 
-        batch.meta_info["multi_turn"] = False
-        batch.meta_info["temperature"] = self._rollout_config.get("temperature", 1.0)
         batch_td = batch.to_tensordict()
         batch_td = left_right_2_no_padding(batch_td)
 
-        ppo_mini_batch_size = len(responses)
         assign_non_tensor(
             batch_td,
             calculate_entropy=True,
-            global_batch_size=ppo_mini_batch_size,
-            mini_batch_size=ppo_mini_batch_size,
+            global_batch_size=total_samples,
+            mini_batch_size=total_samples,
             epochs=1,
             seed=42,
             dataloader_kwargs={"shuffle": False},
         )
 
         actor_output = self.actor_rollout_wg.update_actor(batch_td)
-        logger.info("Actor update completed")
+        actor_loss = float(actor_output.get("loss", 0.0)) if actor_output is not None else 0.0
+        logger.info("Actor update completed — loss=%.4f", actor_loss)
 
-        # ---- 6. Update weights (sync actor → rollout via naive IPC) ----
+        # ---- 8. Update weights (sync actor → rollout via naive IPC) ----
         global_steps = getattr(self, "_global_steps", 0) + 1
         self._global_steps = global_steps
-        logger.info("Syncing weights to rollout (global_steps=%d)", global_steps)
         t_sync = time.time()
         self.checkpoint_manager.update_weights(global_steps)
         logger.info("Weight sync done in %.1fs", time.time() - t_sync)
 
-        # ---- 7. Wake replicas (restore vLLM engine for serving) ----
-        logger.info("Waking rollout replicas via CheckpointEngineManager...")
-        self.checkpoint_manager.wake_up_replicas()
-        logger.info("Replicas awake — resuming serving")
+        total_time = time.time() - t_start
+        logger.info("train_step completed in %.1fs", total_time)
 
-        logger.info("train_step completed in %.1fs", time.time() - t_start)
+        return {
+            "reward_mean": reward_mean,
+            "reward_correct": n_correct,
+            "reward_total": len(rewards),
+            "actor_loss": actor_loss,
+            "step_time_seconds": total_time,
+        }
 
     # ------------------------------------------------------------------
     # Batch construction helpers
@@ -395,12 +456,14 @@ class ServeRunner(TaskRunner):
         uid = np.array([f"p{i // rollout_n}_r{i}" for i in range(n)], dtype=object)
 
         batch_data = {
+            "prompts": prompt_tensor,
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "position_ids": position_ids,
             "responses": response_tensor,
             "response_mask": response_tensor != 0,
             "token_level_scores": token_level_scores,
+            "token_level_rewards": token_level_scores,
         }
         non_tensor_data = {
             "uid": uid,
@@ -546,106 +609,140 @@ def run_serve(config) -> None:
     _app_state["active_requests"] = 0
     _app_state["runner"] = runner
 
-    # ---- A2: Training orchestrator (idle detection + training trigger) ----
-    from trainable_openclaw.training.orchestrator import TrainingOrchestrator
-
-    orchestrator = TrainingOrchestrator(
-        idle_timeout=config.trainer.get("idle_timeout", 60.0),
-        min_samples=config.trainer.get("min_samples", 16),
-    )
+    # ---- A2: Async training orchestrator (runs on uvicorn event loop) ----
+    # We avoid threads entirely because Ray actor calls (llm_client.generate,
+    # server.acquire, etc.) hang when invoked from background threads.
+    # Instead, the orchestrator state runs inline on the uvicorn event loop.
+    import asyncio
+    import time as _time
 
     # ---- A3: Pre-load GSM8K training data (for GRPO training validation) ----
     gsm8k_data = _load_gsm8k_data(config, tokenizer)
 
-    # Wire external-data check so GSM8K prompts bypass the min_samples gate
-    orchestrator.set_external_data_check(lambda: bool(gsm8k_data))
+    # Orchestrator state (no threads)
+    _orch_state = {
+        "mode": "serving",
+        "last_request_time": _time.time(),
+        "samples": [],
+        "training_in_progress": False,
+        "idle_timeout": config.trainer.get("idle_timeout", 60.0),
+        "min_samples": config.trainer.get("min_samples", 16),
+        "poll_interval": 1.0,
+    }
+    _app_state["orch_state"] = _orch_state
 
-    def _train_bridge(samples):
-        """Bridge: orchestrator thread → generate responses → train on Ray actor.
+    async def _record_request_async(prompt_ids, response_ids, metadata=None):
+        """Non-blocking sample recording (called from API handlers on event loop)."""
+        s = _app_state["active_requests"]
+        _orch_state["last_request_time"] = _time.time()
+        _orch_state["samples"].append({
+            "prompt_ids": prompt_ids,
+            "response_ids": response_ids,
+            "metadata": metadata or {},
+        })
+        # Cap buffer
+        if len(_orch_state["samples"]) > 10000:
+            _orch_state["samples"] = _orch_state["samples"][-5000:]
 
-        Runs in the orchestrator monitor thread (not the uvicorn event loop),
-        so asyncio.run() works for calling the async LLM client.
-        """
-        import asyncio
-        from uuid import uuid4
-
-        rollout_config = info["rollout_config"]
-        rollout_n = rollout_config.get("n", 4)
-
-        # Build prompt replicas
-        all_prompts = []
-        all_ground_truths = []
-
-        if gsm8k_data:
-            # Use pre-loaded GSM8K data for training
-            for item in gsm8k_data:
-                for _ in range(rollout_n):
-                    all_prompts.append(item["prompt_ids"])
-                    all_ground_truths.append(item["ground_truth"])
-            n_prompts = len(gsm8k_data)
-        elif samples:
-            # Fall back to accumulated API samples
-            for s in samples:
-                for _ in range(rollout_n):
-                    all_prompts.append(s.prompt_ids)
-                    all_ground_truths.append(s.metadata.get("ground_truth"))
-            n_prompts = len(samples)
-        else:
-            logger.warning("No training data available — skipping training")
-            return
+    async def _async_monitor_loop():
+        """Monitor idle state and trigger training — runs on uvicorn event loop."""
 
         logger.info(
-            "Generating %d responses (%d prompts x %d)...",
-            len(all_prompts), n_prompts, rollout_n,
+            "Async training monitor started — idle_timeout=%ds, min_samples=%d",
+            _orch_state["idle_timeout"], _orch_state["min_samples"],
         )
 
-        # Generate N responses per prompt using vLLM servers
-        sampling_params = {
-            "temperature": rollout_config.get("temperature", 1.0),
-            "top_p": rollout_config.get("top_p", 1.0),
-            "max_tokens": rollout_config.get("response_length", 2048),
-        }
+        while True:
+            await asyncio.sleep(_orch_state["poll_interval"])
 
-        async def _generate_all():
-            return await asyncio.gather(*[
-                llm_client.generate(
-                    request_id=uuid4().hex,
-                    prompt_ids=prompt_ids,
-                    sampling_params=sampling_params,
+            if _orch_state["training_in_progress"]:
+                continue
+
+            # Check idle
+            elapsed = _time.time() - _orch_state["last_request_time"]
+            if elapsed < _orch_state["idle_timeout"]:
+                continue
+
+            # Check sample threshold (skip if GSM8K data available)
+            n_samples = len(_orch_state["samples"])
+            if not gsm8k_data and n_samples < _orch_state["min_samples"]:
+                continue
+
+            # ---- Trigger training ----
+            _orch_state["training_in_progress"] = True
+            _orch_state["mode"] = "training"
+            t_start = _time.time()
+
+            # Drain samples
+            samples = list(_orch_state["samples"])
+            _orch_state["samples"].clear()
+
+            logger.info("Training triggered — %d samples, idle=%.1fs", len(samples), elapsed)
+            print(f"[TRAINING] Training triggered — {len(samples)} samples, idle={elapsed:.1f}s", file=sys.stderr, flush=True)
+
+            try:
+                rollout_config = info["rollout_config"]
+                rollout_n = rollout_config.get("n", 4)
+                all_prompts = []
+                all_ground_truths = []
+
+                if gsm8k_data:
+                    for item in gsm8k_data:
+                        all_prompts.append(item["prompt_ids"])
+                        all_ground_truths.append(item["ground_truth"])
+                elif samples:
+                    for s in samples:
+                        all_prompts.append(s["prompt_ids"])
+                        all_ground_truths.append(s["metadata"].get("ground_truth"))
+                else:
+                    logger.warning("No training data — skipping")
+                    continue
+
+                sampling_params = {
+                    "temperature": rollout_config.get("temperature", 1.0),
+                    "top_p": rollout_config.get("top_p", 1.0),
+                    "max_tokens": rollout_config.get("response_length", 2048),
+                }
+
+                training_data = {
+                    "prompts": all_prompts,
+                    "ground_truths": all_ground_truths,
+                    "rollout_n": rollout_n,
+                    "sampling_params": sampling_params,
+                }
+
+                # Generation, reward, and training all happen inside the actor
+                metrics = ray.get(runner.train_step.remote(training_data))
+
+                elapsed_train = _time.time() - t_start
+                logger.info(
+                    "Training complete in %.1fs — reward=%.3f (%d/%d), loss=%.4f",
+                    elapsed_train,
+                    metrics.get("reward_mean", 0),
+                    metrics.get("reward_correct", 0),
+                    metrics.get("reward_total", 1),
+                    metrics.get("actor_loss", 0),
                 )
-                for prompt_ids in all_prompts
-            ])
+                print(
+                    f"[TRAINING] Training complete in {elapsed_train:.1f}s — "
+                    f"reward={metrics.get('reward_mean', 0):.3f} "
+                    f"({metrics.get('reward_correct', 0)}/{metrics.get('reward_total', 1)}), "
+                    f"loss={metrics.get('actor_loss', 0):.4f}",
+                    file=sys.stderr, flush=True,
+                )
 
-        outputs = asyncio.run(_generate_all())
-        all_responses = [list(o.token_ids) for o in outputs]
+            except Exception:
+                logger.exception("Training failed — resuming serving with old weights")
+            finally:
+                _orch_state["mode"] = "serving"
+                _orch_state["training_in_progress"] = False
+                _orch_state["last_request_time"] = _time.time()
 
-        # Compute rewards (GSM8K answer extraction)
-        rewards = []
-        for response_ids, gt in zip(all_responses, all_ground_truths):
-            if gt is not None:
-                response_text = tokenizer.decode(response_ids, skip_special_tokens=True)
-                extracted = _extract_gsm8k_answer(response_text)
-                reward = 1.0 if extracted is not None and abs(extracted - gt) < 1e-6 else 0.0
-            else:
-                reward = 0.0
-            rewards.append(reward)
-
-        logger.info(
-            "Rewards: mean=%.3f, %d/%d correct",
-            sum(rewards) / len(rewards), sum(r > 0.5 for r in rewards), len(rewards),
-        )
-
-        training_data = {
-            "prompts": all_prompts,
-            "responses": all_responses,
-            "rewards": rewards,
-            "n_prompts": n_prompts,
-        }
-        ray.get(runner.train_step.remote(training_data))
-
-    orchestrator.set_train_fn(_train_bridge)
-    orchestrator.start_monitoring()
-    _app_state["orchestrator"] = orchestrator
+    _app_state["record_request"] = _record_request_async
+    _app_state["orch_state"] = _orch_state
+    _app_state["_monitor_coro"] = _async_monitor_loop
+    _app_state["vllm_server_address"] = info["server_addresses"][0] if info.get("server_addresses") else None
+    _app_state["model_path"] = info.get("model_path", "")
 
     # ---- Start FastAPI ----
     app = create_app()

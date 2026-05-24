@@ -102,14 +102,23 @@ def create_app() -> FastAPI:
     - ``gpu_count`` — int
     - ``start_time`` — set automatically by lifespan
     - ``active_requests`` — int, set to 0 initially
-    - ``orchestrator`` (A2, optional) — TrainingOrchestrator instance
+    - ``orch_state`` (A2) — async orchestrator state dict
+    - ``record_request`` (A2) — async sample recording callback
     """
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        import asyncio
         _app_state["start_time"] = time.time()
-        yield
-        logger.info("Server shutting down")
+        # Schedule the async training monitor on uvicorn's event loop
+        monitor_coro_fn = _app_state.get("_monitor_coro")
+        monitor_task = asyncio.create_task(monitor_coro_fn()) if monitor_coro_fn else None
+        try:
+            yield
+        finally:
+            if monitor_task:
+                monitor_task.cancel()
+            logger.info("Server shutting down")
 
     app = FastAPI(title="Trainable OpenClaw - veRL Inference Server", version="0.1.0", lifespan=lifespan)
 
@@ -117,9 +126,10 @@ def create_app() -> FastAPI:
 
     @app.get("/v1/health", response_model=HealthResponse)
     async def health():
+        orch_state = _app_state.get("orch_state", {})
         return HealthResponse(
             status="ok",
-            mode="serving",
+            mode=orch_state.get("mode", "serving"),
             uptime_seconds=time.time() - _app_state.get("start_time", time.time()),
             active_requests=_app_state.get("active_requests", 0),
             gpu_count=_app_state.get("gpu_count", 0),
@@ -134,8 +144,8 @@ def create_app() -> FastAPI:
         if llm_client is None or tokenizer is None:
             raise HTTPException(status_code=503, detail="Server not initialized yet")
 
-        orchestrator = _app_state.get("orchestrator")
-        if orchestrator is not None and orchestrator.training_in_progress:
+        orch_state = _app_state.get("orch_state")
+        if orch_state is not None and orch_state.get("training_in_progress"):
             raise HTTPException(status_code=503, detail="Training in progress, try later")
 
         # Build prompt from messages (OpenAI chat format)
@@ -175,8 +185,9 @@ def create_app() -> FastAPI:
             )
 
             # Record as training sample (A2)
-            if orchestrator is not None:
-                orchestrator.record_request(prompt_ids, list(output.token_ids))
+            record_fn = _app_state.get("record_request")
+            if record_fn is not None:
+                await record_fn(prompt_ids, list(output.token_ids))
 
             # Detokenize response
             logger.info(
