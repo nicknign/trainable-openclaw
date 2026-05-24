@@ -234,6 +234,7 @@ class ServeRunner(TaskRunner):
         import json
         import time
         import urllib.request
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
         # ---- Logging: write directly to file (Ray actor stdout/stderr are buffered) ----
         TRAIN_LOG = "/tmp/serve_ppo_train.log"
@@ -256,40 +257,57 @@ class ServeRunner(TaskRunner):
         )
         t_start = time.time()
 
-        # ---- 1. Generate responses via vLLM HTTP API ----
+        # ---- 1. Generate responses via vLLM HTTP API (concurrent) ----
         vllm_addr = self.llm_server_manager.server_addresses[0]
         vllm_url = f"http://{vllm_addr}/v1/chat/completions"
         model_path = self._local_path
 
-        all_prompt_ids = []
-        all_responses_text = []
-
+        # Build all generation requests
+        gen_requests = []
         for i, prompt_ids in enumerate(prompts):
             prompt_text = self._tokenizer.decode(prompt_ids, skip_special_tokens=False)
             for j in range(rollout_n):
-                req_data = json.dumps({
+                gen_requests.append({
+                    "url": vllm_url,
                     "model": model_path,
                     "messages": [{"role": "user", "content": prompt_text}],
                     "max_tokens": sampling_params.get("max_tokens", 1024),
                     "temperature": sampling_params.get("temperature", 1.0),
                     "top_p": sampling_params.get("top_p", 1.0),
-                }).encode()
-                req = urllib.request.Request(
-                    vllm_url, data=req_data,
-                    headers={"Content-Type": "application/json"},
-                )
-                resp = urllib.request.urlopen(req, timeout=180)
-                if resp.status != 200:
-                    raise RuntimeError(f"vLLM HTTP {resp.status}: {resp.read()[:500]}")
-                data = json.loads(resp.read())
-                response_text = data["choices"][0]["message"]["content"]
-                all_prompt_ids.append(prompt_ids)
-                all_responses_text.append(response_text)
-                _log(f"Gen {i * rollout_n + j + 1}/{total_samples}: prompt={len(prompt_ids)} resp={len(response_text)}")
+                    "idx": i * rollout_n + j + 1,
+                    "prompt_ids": prompt_ids,
+                })
+
+        def _do_generate(req):
+            data = json.dumps({
+                "model": req["model"],
+                "messages": req["messages"],
+                "max_tokens": req["max_tokens"],
+                "temperature": req["temperature"],
+                "top_p": req["top_p"],
+            }).encode()
+            r = urllib.request.Request(req["url"], data=data, headers={"Content-Type": "application/json"})
+            resp = urllib.request.urlopen(r, timeout=180)
+            if resp.status != 200:
+                raise RuntimeError(f"vLLM HTTP {resp.status}: {resp.read()[:500]}")
+            body = json.loads(resp.read())
+            return req["idx"], req["prompt_ids"], body["choices"][0]["message"]["content"]
+
+        all_prompt_ids = [None] * len(gen_requests)
+        all_responses_text = [None] * len(gen_requests)
+
+        _log(f"Generating {len(gen_requests)} responses ({n_prompts} prompts x {rollout_n}) with {min(8, len(gen_requests))} concurrent workers")
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {executor.submit(_do_generate, r): r for r in gen_requests}
+            for future in as_completed(futures):
+                idx, prompt_ids, response_text = future.result()
+                slot = idx - 1
+                all_prompt_ids[slot] = prompt_ids
+                all_responses_text[slot] = response_text
+                _log(f"Gen {idx}/{total_samples}: prompt={len(prompt_ids)} resp={len(response_text)}")
                 logger.info(
                     "Generated %d/%d: prompt_len=%d resp_len=%d",
-                    i * rollout_n + j + 1, total_samples,
-                    len(prompt_ids), len(response_text),
+                    idx, total_samples, len(prompt_ids), len(response_text),
                 )
 
         t_gen = time.time()
@@ -637,6 +655,8 @@ def run_serve(config) -> None:
 
     # ---- A3: Pre-load GSM8K training data (for GRPO training validation) ----
     gsm8k_data = _load_gsm8k_data(config, tokenizer)
+    train_steps_per_cycle = config.trainer.get("train_steps_per_cycle", 5)
+    prompts_per_step = config.trainer.get("prompts_per_step", 4)
 
     # Orchestrator state (no threads)
     _orch_state = {
@@ -699,57 +719,92 @@ def run_serve(config) -> None:
             samples = list(_orch_state["samples"])
             _orch_state["samples"].clear()
 
-            logger.info("Training triggered — %d samples, idle=%.1fs", len(samples), elapsed)
-            print(f"[TRAINING] Training triggered — {len(samples)} samples, idle={elapsed:.1f}s", file=sys.stderr, flush=True)
+            logger.info("Training triggered — %d samples, idle=%.1fs, steps=%d",
+                        len(samples), elapsed, train_steps_per_cycle)
+            print(f"[TRAINING] Training triggered — {len(samples)} samples, idle={elapsed:.1f}s, "
+                  f"steps={train_steps_per_cycle}, per_step={prompts_per_step}",
+                  file=sys.stderr, flush=True)
 
+            all_step_metrics = []
             try:
                 rollout_config = info["rollout_config"]
                 rollout_n = rollout_config.get("n", 4)
-                all_prompts = []
-                all_ground_truths = []
-
-                if gsm8k_data:
-                    for item in gsm8k_data:
-                        all_prompts.append(item["prompt_ids"])
-                        all_ground_truths.append(item["ground_truth"])
-                elif samples:
-                    for s in samples:
-                        all_prompts.append(s["prompt_ids"])
-                        all_ground_truths.append(s["metadata"].get("ground_truth"))
-                else:
-                    logger.warning("No training data — skipping")
-                    continue
-
                 sampling_params = {
                     "temperature": rollout_config.get("temperature", 1.0),
                     "top_p": rollout_config.get("top_p", 1.0),
                     "max_tokens": rollout_config.get("response_length", 2048),
                 }
 
-                training_data = {
-                    "prompts": all_prompts,
-                    "ground_truths": all_ground_truths,
-                    "rollout_n": rollout_n,
-                    "sampling_params": sampling_params,
-                }
+                for step in range(train_steps_per_cycle):
+                    t_step = _time.time()
 
-                # Generation, reward, and training all happen inside the actor
-                metrics = ray.get(runner.train_step.remote(training_data))
+                    # Round-robin prompt selection from pool
+                    if gsm8k_data:
+                        pool = gsm8k_data
+                    else:
+                        pool = samples
+                    if not pool:
+                        logger.warning("No training data — skipping remaining steps")
+                        break
+
+                    start_idx = (step * prompts_per_step) % len(pool)
+                    step_prompts = []
+                    step_ground_truths = []
+                    for k in range(prompts_per_step):
+                        idx = (start_idx + k) % len(pool)
+                        item = pool[idx]
+                        if isinstance(item, dict):
+                            step_prompts.append(item.get("prompt_ids"))
+                            step_ground_truths.append(item.get("ground_truth"))
+                        else:
+                            step_prompts.append(item["prompt_ids"])
+                            step_ground_truths.append(item["metadata"].get("ground_truth"))
+
+                    training_data = {
+                        "prompts": step_prompts,
+                        "ground_truths": step_ground_truths,
+                        "rollout_n": rollout_n,
+                        "sampling_params": sampling_params,
+                    }
+
+                    metrics = ray.get(runner.train_step.remote(training_data))
+
+                    step_time = _time.time() - t_step
+                    all_step_metrics.append(metrics)
+                    logger.info(
+                        "Step %2d/%d done in %5.1fs — reward=%.3f (%d/%d), loss=%.4f",
+                        step + 1, train_steps_per_cycle, step_time,
+                        metrics.get("reward_mean", 0),
+                        metrics.get("reward_correct", 0),
+                        metrics.get("reward_total", 1),
+                        metrics.get("actor_loss", 0),
+                    )
+                    print(f"[TRAIN STEP] {step + 1}/{train_steps_per_cycle} done in {step_time:.0f}s — "
+                          f"reward={metrics.get('reward_mean', 0):.3f} "
+                          f"({metrics.get('reward_correct', 0)}/{metrics.get('reward_total', 1)}), "
+                          f"loss={metrics.get('actor_loss', 0):.4f}",
+                          file=sys.stderr, flush=True)
 
                 elapsed_train = _time.time() - t_start
+                # Summarize
+                reward_means = [m.get("reward_mean", 0) for m in all_step_metrics]
+                reward_corrects = [m.get("reward_correct", 0) for m in all_step_metrics]
+                reward_totals = [m.get("reward_total", 1) for m in all_step_metrics]
+                actor_losses = [m.get("actor_loss", 0) for m in all_step_metrics]
+
                 logger.info(
-                    "Training complete in %.1fs — reward=%.3f (%d/%d), loss=%.4f",
-                    elapsed_train,
-                    metrics.get("reward_mean", 0),
-                    metrics.get("reward_correct", 0),
-                    metrics.get("reward_total", 1),
-                    metrics.get("actor_loss", 0),
+                    "Training complete in %.1fs — %d steps, "
+                    "reward=%.3f→%.3f, correct=%d→%d, loss=%.4f→%.4f",
+                    elapsed_train, len(all_step_metrics),
+                    reward_means[0], reward_means[-1],
+                    reward_corrects[0], reward_corrects[-1],
+                    actor_losses[0], actor_losses[-1],
                 )
                 print(
                     f"[TRAINING] Training complete in {elapsed_train:.1f}s — "
-                    f"reward={metrics.get('reward_mean', 0):.3f} "
-                    f"({metrics.get('reward_correct', 0)}/{metrics.get('reward_total', 1)}), "
-                    f"loss={metrics.get('actor_loss', 0):.4f}",
+                    f"reward {reward_means[0]:.3f}→{reward_means[-1]:.3f}, "
+                    f"correct {reward_corrects[0]}→{reward_corrects[-1]}, "
+                    f"loss {actor_losses[0]:.4f}→{actor_losses[-1]:.4f}",
                     file=sys.stderr, flush=True,
                 )
 

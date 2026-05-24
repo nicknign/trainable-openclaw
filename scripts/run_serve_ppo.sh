@@ -40,5 +40,7 @@ export HF_DATASETS_OFFLINE=1
     +trainer.idle_timeout=30 \
     +trainer.min_samples=1 \
     +trainer.gsm8k.enabled=true \
-    +trainer.gsm8k.num_prompts=4 \
+    +trainer.gsm8k.num_prompts=20 \
+    +trainer.train_steps_per_cycle=5 \
+    +trainer.prompts_per_step=4 \
     "$@"
