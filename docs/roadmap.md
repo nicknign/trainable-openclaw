@@ -365,9 +365,9 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 | 0.2 | LLM-as-Judge调研 | ⬜ | | 背景进行 |
 | 0.3 | GRPO/RL算法调研 | ⬜ | | 背景进行 |
 | 0.4 | 算法方向确定 | ⬜ | | 背景进行 |
-| A1 | Rollout API Server | ✅ 代码完成 | 2026-05-16 | 待Linux验证 |
-| A2 | 空闲检测+训练触发 | ✅ 代码完成 | 2026-05-16 | 待Linux验证 |
-| A3 | 权重同步+恢复推理+GRPO | ✅ 代码完成 | 2026-05-22 | 已重构为CheckpointEngineManager + GRPO训练，待Linux验证 |
+| A1 | Rollout API Server | ✅ 已完成 | 2026-05-22 | FastAPI + vLLM Qwen3-4B, OpenAI-compatible, 12 GPU集成测试通过 |
+| A2 | 空闲检测+训练触发 | ✅ 已完成 | 2026-05-22 | orchestrator + idle_timeout + min_samples, 5 GPU集成测试通过 |
+| A3 | 权重同步+恢复推理+GRPO | ✅ 已完成 | 2026-05-25 | CheckpointEngineManager weight sync + GRPO训练闭环, 9 GPU集成测试通过 |
 | B1 | 用户反馈收集与分析 | ⬜ | | W3 |
 | B2 | LLM自主生成Rubrics | ⬜ | | W3 |
 | B3 | Rubric执行器(Judge) | ⬜ | | W4 |
@@ -377,3 +377,22 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 | D1 | 测试集构建 | ⬜ | | 一个月后 |
 | D2 | 效果评估体系 | ⬜ | | 一个月后 |
 | D3 | 持续改进闭环 | ⬜ | | 一个月后 |
+
+### Phase 1 里程碑总结（2026-05-25）
+
+**A1+A2+A3 全部完成**，共 59 个集成测试全部通过（33 mock + 26 GPU）。
+
+**关键成果：**
+- veRL 常驻推理 API 服务（FastAPI + vLLM HYBRID 模式，Qwen3-4B + LoRA rank=16）
+- 空闲检测 + 训练编排器（idle_timeout → 自动触发 GRPO 训练）
+- GRPO 训练闭环（生成 → 奖励 → sleep → old_log_probs → advantage → update → weight sync → wake）
+- 与 veRL 原生实现对齐：reward 最后 token 放置、原生 GSM8K reward 函数、config 驱动 mini-batch、Tracking 日志（console + tensorboard）
+- End-to-end GSM8K 20-step 训练验证通过（batch=64, 90min, 无 OOM 无崩溃）
+- GSM8K 耗尽保护（训练失败不标记耗尽，可重试）
+
+**启动脚本：**
+| 脚本 | 用途 |
+|------|------|
+| `scripts/run_serve_ppo.sh` | 生产启动（GSM8K enabled, idle_timeout=30） |
+| `scripts/run_serve_ppo_test.sh` | 测试启动（低阈值, GSM8K disabled） |
+| `scripts/run_gsm8k_e2e_test.sh` | GSM8K 端到端测试（20 steps, batch=64） |
