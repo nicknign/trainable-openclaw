@@ -179,6 +179,17 @@ class ServeRunner(TaskRunner):
 
         gpu_count = config.trainer.n_gpus_per_node * config.trainer.nnodes
 
+        # ---- Init veRL Tracking logger (console + tensorboard) ----
+        from verl.utils.tracking import Tracking
+
+        self.config = config
+        self.tracker = Tracking(
+            project_name=config.trainer.project_name,
+            experiment_name=config.trainer.experiment_name,
+            default_backend=config.trainer.logger,
+            config=OmegaConf.to_container(config, resolve=True),
+        )
+
         self._local_path = local_path
         self._gpu_count = gpu_count
         self._rollout_config = config.actor_rollout_ref.rollout
@@ -233,6 +244,7 @@ class ServeRunner(TaskRunner):
         """
         import json
         import time
+        import torch
         import urllib.request
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -287,7 +299,7 @@ class ServeRunner(TaskRunner):
                 "top_p": req["top_p"],
             }).encode()
             r = urllib.request.Request(req["url"], data=data, headers={"Content-Type": "application/json"})
-            resp = urllib.request.urlopen(r, timeout=180)
+            resp = urllib.request.urlopen(r, timeout=300)
             if resp.status != 200:
                 raise RuntimeError(f"vLLM HTTP {resp.status}: {resp.read()[:500]}")
             body = json.loads(resp.read())
@@ -296,8 +308,8 @@ class ServeRunner(TaskRunner):
         all_prompt_ids = [None] * len(gen_requests)
         all_responses_text = [None] * len(gen_requests)
 
-        _log(f"Generating {len(gen_requests)} responses ({n_prompts} prompts x {rollout_n}) with {min(8, len(gen_requests))} concurrent workers")
-        with ThreadPoolExecutor(max_workers=8) as executor:
+        _log(f"Generating {len(gen_requests)} responses ({n_prompts} prompts x {rollout_n}) with {min(16, len(gen_requests))} concurrent workers")
+        with ThreadPoolExecutor(max_workers=16) as executor:
             futures = {executor.submit(_do_generate, r): r for r in gen_requests}
             for future in as_completed(futures):
                 idx, prompt_ids, response_text = future.result()
@@ -314,7 +326,9 @@ class ServeRunner(TaskRunner):
         _log(f"Generation done in {t_gen - t_start:.1f}s")
         logger.info("Generation done in %.1fs", t_gen - t_start)
 
-        # ---- 2. Compute rewards (GSM8K answer matching) ----
+        # ---- 2. Compute rewards (GSM8K answer matching, native veRL) ----
+        from verl.utils.reward_score.gsm8k import compute_score as gsm8k_compute_score
+
         responses = []
         rewards = []
         all_ground_truths = [gt for gt in ground_truths for _ in range(rollout_n)]
@@ -322,54 +336,51 @@ class ServeRunner(TaskRunner):
             response_ids = self._tokenizer.encode(response_text, add_special_tokens=False)
             responses.append(response_ids)
             if gt is not None:
-                extracted = _extract_gsm8k_answer(response_text)
-                reward = 1.0 if extracted is not None and abs(extracted - gt) < 1e-6 else 0.0
-                # Per-sample debug: show first 2 samples per prompt group
-                group_idx = i // rollout_n
-                pos_in_group = i % rollout_n
-                has_hash = "####" in response_text
-                if pos_in_group < 2:
-                    snippet = response_text[-200:].replace("\n", "\\n")
-                    _log(f"  Reward[{i}] p{group_idx}/{pos_in_group}: extracted={extracted}, gt={gt}, reward={reward}, has_####={has_hash}, tail={{{snippet}}}")
+                reward = gsm8k_compute_score(response_text, str(gt))
             else:
                 reward = 0.0
             rewards.append(reward)
 
         n_correct = sum(r > 0.5 for r in rewards)
         reward_mean = sum(rewards) / len(rewards) if rewards else 0.0
-        # Per-group reward breakdown
-        per_group_rewards = []
-        for g in range(n_prompts):
-            gr = rewards[g * rollout_n : (g + 1) * rollout_n]
-            per_group_rewards.append(f"p{g}=[{','.join(f'{r:.0f}' for r in gr)}]")
-        _log(f"Rewards: mean={reward_mean:.3f}, {n_correct}/{len(rewards)} correct | groups: {' '.join(per_group_rewards)}")
+        _log(f"Rewards: mean={reward_mean:.3f}, {n_correct}/{len(rewards)} correct")
         logger.info("Rewards: mean=%.3f, %d/%d correct", reward_mean, n_correct, len(rewards))
 
         # ---- 3. Sleep replicas (free GPU memory for training) ----
         _log("Sleeping replicas via CheckpointEngineManager...")
         self.checkpoint_manager.sleep_replicas()
+        t_sleep = time.time()
         _log("Replicas asleep")
 
-        # ---- 4. Build DataProto batch ----
-        batch = self._build_training_batch(all_prompt_ids, responses, rewards, rollout_n)
+        # ---- 4. Build DataProto batch (structural only) ----
+        batch = self._build_training_batch(all_prompt_ids, responses)
         batch.meta_info["temperature"] = sampling_params.get("temperature", 1.0)
         batch.meta_info["multi_turn"] = False
         _log(f"Training batch built: { {k: v.shape for k, v in batch.batch.items()} }")
         logger.info("Training batch built: %s", {k: v.shape for k, v in batch.batch.items()})
 
-        # ---- 5. Compute old_log_probs ----
+        # ---- 5. Compute rm_scores (last-token-only, matches veRL native) ----
+        batch = self._compute_rm_scores(batch, rewards)
+        _log("rm_scores computed (last-token placement)")
+        logger.info("rm_scores computed (last-token placement)")
+
+        # ---- 6. Compute response_mask (veRL native) ----
         from verl.trainer.ppo.ray_trainer import compute_response_mask
+
+        batch.batch["response_mask"] = compute_response_mask(batch)
+        _log("response_mask computed")
+        logger.info("response_mask computed")
+
+        # ---- 7. Compute old_log_probs ----
         from verl.utils import tensordict_utils as tu
         from verl.workers.utils.padding import left_right_2_no_padding
-
-        if "response_mask" not in batch.batch:
-            batch.batch["response_mask"] = compute_response_mask(batch)
 
         batch_td = batch.to_tensordict()
         batch_td = left_right_2_no_padding(batch_td)
         tu.assign_non_tensor(batch_td, calculate_entropy=True, compute_loss=False)
 
         old_log_prob_output = self.actor_rollout_wg.compute_log_prob(batch_td)
+        t_olp = time.time()
         _log("old_log_probs computed")
         logger.info("old_log_probs computed")
 
@@ -379,7 +390,7 @@ class ServeRunner(TaskRunner):
         old_log_probs = no_padding_2_padding(log_probs, batch_td)
         batch.batch["old_log_probs"] = old_log_probs.float()
 
-        # ---- 6. Compute GRPO advantages ----
+        # ---- 8. Compute GRPO advantages ----
         from verl.trainer.ppo.ray_trainer import compute_advantage
         from verl.trainer.ppo.core_algos import AdvantageEstimator
 
@@ -396,37 +407,46 @@ class ServeRunner(TaskRunner):
         )
         _log("GRPO advantages computed")
         logger.info("GRPO advantages computed")
-        # Debug: advantage statistics
-        if "advantages" in batch.batch:
-            adv = batch.batch["advantages"]
-            adv_nonzero = (adv.abs() > 1e-8).sum().item()
-            _log(f"  Advantage stats: min={adv.min().item():.4f}, max={adv.max().item():.4f}, nonzero={adv_nonzero}/{adv.numel()}, mean_abs={adv.abs().mean().item():.6f}")
-        if "returns" in batch.batch:
-            ret = batch.batch["returns"]
-            _log(f"  Returns stats: min={ret.min().item():.4f}, max={ret.max().item():.4f}, mean={ret.mean().item():.4f}")
+        t_adv = time.time()
 
-        # ---- 7. Update actor ----
+        # ---- 9. Update actor (config-driven mini-batch) ----
         from verl.utils.tensordict_utils import assign_non_tensor
 
         batch_td = batch.to_tensordict()
         batch_td = left_right_2_no_padding(batch_td)
 
+        actor_config = self.config.actor_rollout_ref.actor
+        rollout_n_cfg = self.config.actor_rollout_ref.rollout.n
+        # Cap mini_batch_size to actual batch size — serve_ppo batches are
+        # small (n_prompts × rollout_n), unlike native veRL's large dataloader.
+        effective_batch_size = min(
+            actor_config.ppo_mini_batch_size * rollout_n_cfg,
+            total_samples,
+        )
         assign_non_tensor(
             batch_td,
-            calculate_entropy=True,
-            global_batch_size=total_samples,
-            mini_batch_size=total_samples,
-            epochs=1,
-            seed=42,
-            dataloader_kwargs={"shuffle": False},
+            calculate_entropy=actor_config.calculate_entropy or (actor_config.entropy_coeff != 0.0),
+            global_batch_size=effective_batch_size,
+            mini_batch_size=effective_batch_size,
+            epochs=actor_config.ppo_epochs,
+            seed=actor_config.data_loader_seed,
+            dataloader_kwargs={"shuffle": actor_config.shuffle},
+            compute_loss=True,
         )
 
         actor_output = self.actor_rollout_wg.update_actor(batch_td)
-        actor_loss = float(actor_output.get("loss", 0.0)) if actor_output is not None else 0.0
+        actor_output_metrics = tu.get(actor_output, "metrics")
+        from verl.utils.py_functional import rename_dict
+        actor_metrics = rename_dict(actor_output_metrics, "actor/")
+        t_actor = time.time()
+        loss_val = actor_output_metrics.get("loss", 0.0) if actor_output_metrics else 0.0
+        if isinstance(loss_val, list):
+            loss_val = sum(loss_val) / len(loss_val) if loss_val else 0.0
+        actor_loss = float(loss_val)
         _log(f"Actor update completed — loss={actor_loss:.4f}")
         logger.info("Actor update completed — loss=%.4f", actor_loss)
 
-        # ---- 8. Update weights (sync actor → rollout via naive IPC) ----
+        # ---- 10. Update weights (sync actor → rollout via naive IPC) ----
         global_steps = getattr(self, "_global_steps", 0) + 1
         self._global_steps = global_steps
         t_sync = time.time()
@@ -434,7 +454,35 @@ class ServeRunner(TaskRunner):
         _log(f"Weight sync done in {time.time() - t_sync:.1f}s (wake handled internally)")
         logger.info("Weight sync done in %.1fs", time.time() - t_sync)
 
+        # ---- 11. Compute native metrics (data/timing/throughput) + tracker.log ----
+        from verl.trainer.ppo.metric_utils import (
+            compute_data_metrics,
+            compute_timing_metrics,
+            compute_throughout_metrics,
+        )
+
         total_time = time.time() - t_start
+        timing_raw = {
+            "gen": t_gen - t_start,
+            "old_log_prob": t_olp - t_sleep,
+            "adv": t_adv - t_olp,
+            "update_actor": t_actor - t_adv,
+            "step": total_time,
+        }
+
+        batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
+
+        step_metrics = {}
+        step_metrics.update(actor_metrics)
+        step_metrics.update(compute_data_metrics(batch=batch, use_critic=False))
+        step_metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
+        step_metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=self._gpu_count))
+        step_metrics["training/global_step"] = global_steps
+
+        try:
+            self.tracker.log(data=step_metrics, step=global_steps)
+        except Exception:
+            logger.warning("tracker.log failed (non-fatal)", exc_info=True)
         _log(f"train_step completed in {total_time:.1f}s — reward={reward_mean:.3f} ({n_correct}/{len(rewards)}), loss={actor_loss:.4f}")
         logger.info("train_step completed in %.1fs", total_time)
 
@@ -454,13 +502,13 @@ class ServeRunner(TaskRunner):
     def _build_training_batch(
         prompts: list[list[int]],
         responses: list[list[int]],
-        rewards: list[float],
-        rollout_n: int,
     ) -> DataProto:
         """Build a DataProto training batch from raw token sequences.
 
-        Constructs input_ids, attention_mask, position_ids, response_mask,
-        and token_level_scores from prompt/response token lists.
+        Constructs input_ids, attention_mask, position_ids, and responses.
+        Does NOT set token_level_scores/token_level_rewards/response_mask —
+        those are computed by _compute_rm_scores and compute_response_mask
+        respectively, matching veRL's native flow.
         """
         import torch
 
@@ -503,31 +551,48 @@ class ServeRunner(TaskRunner):
             attention_mask[i, max_prompt_len:] = resp_mask
             position_ids[i, max_prompt_len:] = position_ids[i, max_prompt_len - 1] + torch.cumsum(resp_mask, dim=0) + (1 - resp_mask.long())
 
-        # Token-level scores: broadcast reward to each response token
-        token_level_scores = torch.zeros(n, max_resp_len)
-        for i, (r, reward) in enumerate(zip(responses, rewards)):
-            resp_len = len(r)
-            token_level_scores[i, :resp_len] = reward
-
-        # UIDs for group advantage
-        uid = np.array([f"p{i // rollout_n}_r{i}" for i in range(n)], dtype=object)
-
         batch_data = {
             "prompts": prompt_tensor,
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "position_ids": position_ids,
             "responses": response_tensor,
-            "response_mask": response_tensor != 0,
-            "token_level_scores": token_level_scores,
-            "token_level_rewards": token_level_scores,
         }
         non_tensor_data = {
-            "uid": uid,
             "data_source": np.array(["gsm8k"] * n, dtype=object),
         }
 
         return DataProto.from_dict(tensors=batch_data, non_tensors=non_tensor_data)
+
+    @staticmethod
+    def _compute_rm_scores(batch: DataProto, rewards: list[float]) -> DataProto:
+        """Place reward only on the last valid response token.
+
+        Matches veRL's native ``reward_manager/base.py`` behavior:
+        ``rm_scores[..., valid_response_length - 1] = scores``
+
+        This is critical for GRPO: ``compute_grpo_outcome_advantage`` uses
+        ``token_level_rewards.sum(dim=-1)`` which must equal the scalar
+        reward, not ``reward * response_length``.
+        """
+        import torch
+
+        n = len(rewards)
+        response_mask = batch.batch["responses"] != 0
+        max_resp_len = response_mask.size(1)
+
+        # valid_response_length: 1-indexed position of last real token
+        valid_response_length = response_mask.sum(dim=-1)
+
+        rm_scores = torch.zeros(n, max_resp_len, dtype=torch.float32)
+        for i in range(n):
+            vlen = valid_response_length[i].item()
+            if vlen > 0:
+                rm_scores[i, vlen - 1] = rewards[i]
+
+        batch.batch["token_level_scores"] = rm_scores
+        batch.batch["token_level_rewards"] = rm_scores
+        return batch
 
 
 # ---------------------------------------------------------------------------
@@ -547,21 +612,6 @@ def main(config):
     run_serve(config)
 
 
-def _extract_gsm8k_answer(text: str) -> float | None:
-    """Extract the final numeric answer from a GSM8K-style response.
-
-    Looks for ``#### <number>`` at the end of the text and returns the
-    number as a float, or None if no answer delimiter is found.
-    """
-    if "####" not in text:
-        return None
-    answer_part = text.split("####")[-1].strip()
-    import re
-
-    numbers = re.findall(r"-?\d+(?:,\d{3})*(?:\.\d+)?", answer_part)
-    if not numbers:
-        return None
-    return float(numbers[-1].replace(",", ""))
 
 
 def _load_gsm8k_data(config, tokenizer) -> list[dict]:
@@ -586,7 +636,7 @@ def _load_gsm8k_data(config, tokenizer) -> list[dict]:
     split = gsm8k_config.get("split", "train")
     prompt_template = gsm8k_config.get(
         "prompt_template",
-        "{question}\nLet's think step by step and output the final answer after \"####\".\n",
+        "{question}\nLet's think step by step. Your final line MUST be exactly \"#### X\" where X is only the numerical answer (e.g., \"#### 72\"). Do not add extra text after the number.\n",
     )
 
     try:
@@ -597,12 +647,13 @@ def _load_gsm8k_data(config, tokenizer) -> list[dict]:
         logger.warning("Failed to load GSM8K dataset: %s", e)
         return []
 
+    from verl.utils.reward_score.gsm8k import extract_solution
+
     data = []
     for row in dataset:
         question = row["question"]
-        # Extract ground truth number from answer (e.g., "#### 42")
         answer_text = row["answer"]
-        gt = _extract_gsm8k_answer(answer_text)
+        gt = extract_solution(answer_text)
 
         prompt_text = prompt_template.format(question=question)
         prompt_ids = tokenizer.encode(prompt_text)
@@ -752,7 +803,7 @@ def run_serve(config) -> None:
                 sampling_params = {
                     "temperature": rollout_config.get("temperature", 1.0),
                     "top_p": rollout_config.get("top_p", 1.0),
-                    "max_tokens": max(rollout_config.get("response_length", 1024), 2048),
+                    "max_tokens": rollout_config.get("response_length", 8192),
                 }
 
                 for step in range(train_steps_per_cycle):
@@ -831,19 +882,20 @@ def run_serve(config) -> None:
                     file=sys.stderr, flush=True,
                 )
 
+                # Mark GSM8K exhausted after successful full cycle (no API samples)
+                # Failed cycles stay unmarked → can retry after next idle trigger
+                if gsm8k_data and len(samples) == 0:
+                    _orch_state["_gsm8k_exhausted"] = True
+                    logger.info("GSM8K data exhausted after successful cycle; future training requires API samples")
+                    print("[TRAINING] GSM8K data exhausted — future training requires API samples",
+                          file=sys.stderr, flush=True)
+
             except Exception:
                 logger.exception("Training failed — resuming serving with old weights")
             finally:
                 _orch_state["mode"] = "serving"
                 _orch_state["training_in_progress"] = False
                 _orch_state["last_request_time"] = _time.time()
-                # Mark GSM8K exhausted if it was used without new API samples,
-                # preventing repeated training on the same data with no new requests
-                if gsm8k_data and len(samples) == 0:
-                    _orch_state["_gsm8k_exhausted"] = True
-                    logger.info("GSM8K data exhausted; future training requires API samples")
-                    print("[TRAINING] GSM8K data exhausted — future training requires API samples",
-                          file=sys.stderr, flush=True)
 
     _app_state["record_request"] = _record_request_async
     _app_state["orch_state"] = _orch_state

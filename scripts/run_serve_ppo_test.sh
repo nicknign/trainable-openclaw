@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# serve_ppo startup script — inference + idle detection + GSM8K GRPO training
+# serve_ppo test startup — low thresholds for A2/A3 integration testing
 # Runs on single GPU (RTX 3090 48GB), Qwen3-4B + LoRA (rank=16)
 set -xeuo pipefail
 
@@ -35,12 +35,11 @@ export HF_DATASETS_OFFLINE=1
     algorithm.use_kl_in_reward=False \
     trainer.n_gpus_per_node=1 \
     trainer.nnodes=1 \
-    trainer.logger='["console","tensorboard"]' \
+    trainer.logger='["console"]' \
     +trainer.serve_port=8000 \
-    +trainer.idle_timeout=30 \
-    +trainer.min_samples=1 \
-    +trainer.gsm8k.enabled=true \
-    +trainer.gsm8k.num_prompts=20 \
-    +trainer.train_steps_per_cycle=5 \
-    +trainer.prompts_per_step=4 \
+    +trainer.idle_timeout=5 \
+    +trainer.min_samples=2 \
+    +trainer.gsm8k.enabled=false \
+    +trainer.train_steps_per_cycle=1 \
+    +trainer.prompts_per_step=2 \
     "$@"
