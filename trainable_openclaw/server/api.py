@@ -54,6 +54,7 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: Optional[int] = None
     stream: bool = False
     enable_thinking: bool = True
+    user: Optional[str] = None
 
 
 class ChatCompletionResponseChoice(BaseModel):
@@ -171,6 +172,7 @@ def create_app() -> FastAPI:
 
         try:
             _app_state["active_requests"] = _app_state.get("active_requests", 0) + 1
+            t_req_start = time.time()
 
             # Call veRL's async generate
             logger.info(
@@ -183,11 +185,7 @@ def create_app() -> FastAPI:
                 prompt_ids=prompt_ids,
                 sampling_params=sampling_params,
             )
-
-            # Record as training sample (A2)
-            record_fn = _app_state.get("record_request")
-            if record_fn is not None:
-                await record_fn(prompt_ids, list(output.token_ids))
+            latency_ms = (time.time() - t_req_start) * 1000
 
             # Detokenize response
             logger.info(
@@ -199,6 +197,25 @@ def create_app() -> FastAPI:
             response_text = tokenizer.decode(output.token_ids, skip_special_tokens=True)
             prompt_tokens = len(prompt_ids)
             completion_tokens = len(output.token_ids)
+
+            # Record as training sample (A2)
+            record_fn = _app_state.get("record_request")
+            if record_fn is not None:
+                await record_fn(prompt_ids, list(output.token_ids))
+
+            # Log to conversation store (Phase 2 — B1 analysis)
+            store = _app_state.get("conversation_store")
+            if store is not None:
+                user_id = req.user or "anonymous"
+                session_id = store.create_session(user_id, model=req.model)
+                store.add_message(session_id, "user", prompt_text,
+                                  token_count=prompt_tokens)
+                store.add_message(session_id, "assistant", response_text,
+                                  token_count=completion_tokens,
+                                  latency_ms=latency_ms,
+                                  temperature=sampling_params["temperature"],
+                                  max_tokens=sampling_params["max_tokens"],
+                                  stop_reason=output.stop_reason)
 
             return ChatCompletionResponse(
                 id=request_id,

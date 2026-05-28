@@ -238,3 +238,54 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 未提交: `serve_ppo.py` (prompt template fix + max_tokens + asyncio.to_thread + debug logging)
 - 未提交: `test_a2_integration.py`, `test_a3_integration.py` (TRAINING_TIME 修复)
 - 新增未跟踪: `tests/TEST_RECORD.md`
+
+---
+
+## 2026/05/29
+
+### 代码清理
+- 删除 `trainable_openclaw/` 下 5 个空壳/占位目录（19 个文件）：
+  `agents/`, `dashboard/`, `engine/`, `evaluation/`, `logging/`
+- 保留: `server/api.py` (推理API) + `training/orchestrator.py` (测试用)
+
+### B0: 对话日志系统
+- `trainable_openclaw/logging/conversation_store.py` — SQLite + WAL 模式, sessions/messages 双表
+  - session CRUD: create/get/list/delete, 按 user 过滤, 按时间排序
+  - message CRUD: add/get, 自动更新 session 的 updated_at + message_count
+  - 分析查询: query_messages (user/role/time 组合过滤), search_content (关键词模糊搜索)
+  - 统计: get_statistics (session数/消息数/用户分布/角色分布/时间范围)
+  - 线程安全: threading.Lock 保护写入, WAL 模式读并发
+- `trainable_openclaw/logging/viewer.py` — CLI 离线查看工具 (5 子命令)
+  - `users`: 列出用户及统计
+  - `sessions`: 列出会话 (--user, --limit 过滤)
+  - `view <id>`: 查看完整对话 (ANSI 色区分角色)
+  - `search <kw>`: 搜索消息内容
+  - `stats`: 聚合统计概览
+- api.py 集成: ChatCompletionRequest 新增 `user` 字段, 生成完成后自动写入日志
+- serve_ppo.py 集成: run_serve() 初始化 ConversationStore 注入 _app_state
+- `tests/test_conversation_store.py`: 23 测试全部通过 ✅
+
+### B1.2: OASST2 数据处理
+- 数据集选择: OpenAssistant/oasst2 (Apache 2.0, 135K messages, ~47K conversation trees)
+- `scripts/prepare_oasst2.py` — 数据准备脚本:
+  1. 下载 (hf-mirror.com 镜像自动检测)
+  2. 解析 flat messages → conversation trees (主路径遍历)
+  3. Train/Test split (80/20, 按 tree_id 防止泄漏)
+  4. Train → ConversationStore (含模拟用户反馈)
+  5. Test → JSONL (供模型评测)
+  6. Labels + rank → 模拟中文用户反馈 (quality/creativity/humor/helpfulness)
+  7. quality_score 归一化 0-1 (可用作 reward 信号)
+- `requirements.txt`: 新增 `datasets>=3.0.0`
+- 待办: 基础模型评测 (需 GPU), 远程运行数据下载
+
+### 文档更新
+- `docs/roadmap.md`: Phase 1 里程碑完成, B0 已完成, B1.2 进行中
+- `docs/code_guide.md`: 完整代码说明文档 (架构图+流程图+函数详解)
+- README.md / README_zh.md: 更新项目结构和阶段状态
+
+### Git 状态
+- 已提交:
+  - `e65c713` fix: GRPO align with veRL native (reward placement, prompt template, e2e GSM8K)
+  - `65602e6` docs: update roadmap — Phase 1 milestone complete
+  - `d312f20` chore: remove dead stub directories
+- 未提交: B0日志系统 + B1.2数据准备 + 文档更新

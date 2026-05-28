@@ -142,7 +142,7 @@ cd trainable-openclaw
 pip install -e .
 
 # Start the self-evolving inference server
-python -m trainable_openclaw.server.app --config configs/serve.yaml
+bash scripts/run_serve_ppo.sh
 ```
 
 The server starts in serving mode. Send a chat request:
@@ -165,18 +165,18 @@ When idle for 5 minutes, training kicks in automatically. Check the dashboard at
 ```
 trainable-openclaw/
 ├── trainable_openclaw/        # Core Python package
-│   ├── server/                # FastAPI inference server
-│   ├── engine/                # veRL engine wrapper
-│   ├── agents/                # Agent connectors (openclaw, nanobot, etc.)
-│   ├── logging/               # Conversation storage & compression
-│   ├── evaluation/            # Rubric generation & LLM judge
+│   ├── server/                # FastAPI inference server (OpenAI-compatible)
+│   ├── logging/               # Conversation log store (SQLite + CLI viewer)
 │   ├── training/              # Idle detection & training orchestration
-│   └── dashboard/             # Monitoring UI
+│   └── evaluation/            # Rubric generation & LLM judge (Phase 2)
 ├── configs/                   # Configuration files
-├── docs/                      # Documentation & design docs
+├── docs/                      # Documentation, roadmap & design docs
+│   ├── roadmap.md             # Development roadmap
+│   └── code_guide.md          # Detailed code documentation
 ├── papers/                    # Research papers reference
-├── tests/                     # Test suite
-├── scripts/                   # Utility scripts
+├── tests/                     # Test suite (59 tests: 33 mock + 26 GPU)
+├── scripts/                   # Startup & utility scripts
+├── data/                      # Conversation logs & dataset storage
 ├── verl-main-0516/            # veRL reference implementation
 └── requirements.txt
 ```
@@ -192,8 +192,8 @@ See [docs/roadmap.md](docs/roadmap.md) for the detailed development plan.
 | Phase | Status |
 |-------|--------|
 | Phase 0 — Paper survey & algorithm design | In progress |
-| Phase 1 — veRL dual-mode engine | ✅ A1, A2 complete |
-| Phase 2 — Self-evolving evaluation system | Pending |
+| Phase 1 — veRL dual-mode engine | ✅ A1, A2, A3 complete (59 tests) |
+| Phase 2 — Self-evolving evaluation system | 🟡 B0 complete, B1.2 in progress |
 | Phase 3 — Integration & dashboard | Pending |
 | Phase 4 — Benchmark & evaluation | Pending |
 

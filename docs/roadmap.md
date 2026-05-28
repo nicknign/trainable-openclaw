@@ -368,7 +368,9 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 | A1 | Rollout API Server | ✅ 已完成 | 2026-05-22 | FastAPI + vLLM Qwen3-4B, OpenAI-compatible, 12 GPU集成测试通过 |
 | A2 | 空闲检测+训练触发 | ✅ 已完成 | 2026-05-22 | orchestrator + idle_timeout + min_samples, 5 GPU集成测试通过 |
 | A3 | 权重同步+恢复推理+GRPO | ✅ 已完成 | 2026-05-25 | CheckpointEngineManager weight sync + GRPO训练闭环, 9 GPU集成测试通过 |
+| B0 | 对话日志系统 | ✅ 已完成 | 2026-05-29 | SQLite + WAL, sessions/messages 双表, CLI viewer, 23 测试通过 |
 | B1 | 用户反馈收集与分析 | ⬜ | | W3 |
+| B1.2 | OASST2 数据处理 | 🟡 进行中 | 2026-05-29 | 数据集下载/解析/划分, 模拟用户反馈, 基础模型评测 |
 | B2 | LLM自主生成Rubrics | ⬜ | | W3 |
 | B3 | Rubric执行器(Judge) | ⬜ | | W4 |
 | B4 | Rubric持续演进 | ⬜ | | 缓冲 |

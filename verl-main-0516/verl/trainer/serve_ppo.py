@@ -903,6 +903,11 @@ def run_serve(config) -> None:
     _app_state["vllm_server_address"] = info["server_addresses"][0] if info.get("server_addresses") else None
     _app_state["model_path"] = info.get("model_path", "")
 
+    # ---- Conversation log store (Phase 2 — B1 analysis) ----
+    from trainable_openclaw.logging.conversation_store import ConversationStore
+    os.makedirs("data", exist_ok=True)
+    _app_state["conversation_store"] = ConversationStore("data/conversations.db")
+
     # ---- Start FastAPI ----
     app = create_app()
     serve_port = config.trainer.get("serve_port", 8000)

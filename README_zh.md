@@ -142,7 +142,7 @@ cd trainable-openclaw
 pip install -e .
 
 # 启动自进化推理服务
-python -m trainable_openclaw.server.app --config configs/serve.yaml
+bash scripts/run_serve_ppo.sh
 ```
 
 服务启动后处于推理模式。发送对话请求：
@@ -165,18 +165,18 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 ```
 trainable-openclaw/
 ├── trainable_openclaw/        # 核心Python包
-│   ├── server/                # FastAPI推理服务
-│   ├── engine/                # veRL引擎封装
-│   ├── agents/                # Agent连接器（openclaw, nanobot等）
-│   ├── logging/               # 对话存储与压缩
-│   ├── evaluation/            # Rubric生成与LLM打分
+│   ├── server/                # FastAPI推理服务 (OpenAI兼容)
+│   ├── logging/               # 对话日志存储 (SQLite + CLI查看器)
 │   ├── training/              # 空闲检测与训练编排
-│   └── dashboard/             # 监控面板
+│   └── evaluation/            # Rubric生成与LLM打分 (Phase 2)
 ├── configs/                   # 配置文件
-├── docs/                      # 文档与设计
+├── docs/                      # 文档、路线图与设计
+│   ├── roadmap.md             # 研发路线图
+│   └── code_guide.md          # 代码说明文档
 ├── papers/                    # 参考论文
-├── tests/                     # 测试
-├── scripts/                   # 工具脚本
+├── tests/                     # 测试 (59个: 33 mock + 26 GPU)
+├── scripts/                   # 启动与工具脚本
+├── data/                      # 对话日志与数据集存储
 ├── verl-main-0516/            # veRL参考实现
 └── requirements.txt
 ```
@@ -192,8 +192,8 @@ trainable-openclaw/
 | 阶段 | 状态 |
 |------|------|
 | Phase 0 — 论文调研与算法确定 | 进行中 |
-| Phase 1 — veRL双模引擎改造 | ✅ A1, A2 完成 |
-| Phase 2 — 自进化评判系统 | 待开始 |
+| Phase 1 — veRL双模引擎改造 | ✅ A1, A2, A3 完成 (59 测试) |
+| Phase 2 — 自进化评判系统 | 🟡 B0 完成, B1.2 进行中 |
 | Phase 3 — 集成与Dashboard | 待开始 |
 | Phase 4 — 测试集与效果评估 | 待开始 |
 

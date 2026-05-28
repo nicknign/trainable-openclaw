@@ -8,3 +8,4 @@ openai>=1.30.0
 vllm==0.18.1
 modelscope
 orjson
+datasets>=3.0.0
