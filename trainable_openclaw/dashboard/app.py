@@ -1,1 +1,0 @@
-# Monitoring dashboard entry point
