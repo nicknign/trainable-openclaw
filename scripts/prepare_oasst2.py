@@ -44,8 +44,12 @@ def _fmt_time(ts: float) -> str:
 # ---------------------------------------------------------------------------
 
 
-def download_oasst2(split: str = "train+validation") -> list[dict]:
+def download_oasst2(split: str = "train+validation", max_rows: int = 0) -> list[dict]:
     """Download OASST2 and return flat message list.
+
+    Args:
+        split: dataset split name (e.g. "train+validation")
+        max_rows: if > 0, limit to first N rows (streaming mode for speed)
 
     Returns list of dicts with keys: message_id, parent_id, message_tree_id,
     role, text, rank, labels, model_name, lang, review_result, ...
@@ -68,10 +72,24 @@ def download_oasst2(split: str = "train+validation") -> list[dict]:
         os.environ.setdefault("HF_ENDPOINT", mirror)
         print(f"  Using HF mirror: {mirror}")
 
-    print(f"Downloading OpenAssistant/oasst2 ({split})...")
-    ds = load_dataset("OpenAssistant/oasst2", split=split, trust_remote_code=True)
-    messages = [dict(row) for row in ds]
-    print(f"  Downloaded {len(messages)} messages")
+    if max_rows > 0:
+        print(f"Downloading OpenAssistant/oasst2 (streaming, max {max_rows} rows)...")
+        messages = []
+        for s in split.split("+"):
+            print(f"  Loading split: {s}...")
+            ds = load_dataset("OpenAssistant/oasst2", split=s, streaming=True)
+            for row in ds:
+                messages.append(dict(row))
+                if len(messages) >= max_rows:
+                    break
+            if len(messages) >= max_rows:
+                break
+        print(f"  Downloaded {len(messages)} messages (streaming)")
+    else:
+        print(f"Downloading OpenAssistant/oasst2 ({split})...")
+        ds = load_dataset("OpenAssistant/oasst2", split=split)
+        messages = [dict(row) for row in ds]
+        print(f"  Downloaded {len(messages)} messages")
     return messages
 
 
@@ -482,6 +500,8 @@ def main() -> None:
                         help="Print statistics from existing JSONL splits")
     parser.add_argument("--test-size", type=float, default=0.2,
                         help="Test set ratio (default: 0.2)")
+    parser.add_argument("--max-rows", type=int, default=5000,
+                        help="Max rows to download from HF (0=all, default: 5000)")
     parser.add_argument("--db-path", default="data/conversations.db",
                         help="ConversationStore database path")
     parser.add_argument("--output-dir", default="data",
@@ -512,7 +532,7 @@ def main() -> None:
     print(f"{'='*60}\n")
 
     # 1. Download
-    messages = download_oasst2()
+    messages = download_oasst2(max_rows=args.max_rows)
 
     # 2. Parse trees
     print("\nBuilding conversation trees...")

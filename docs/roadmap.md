@@ -36,9 +36,10 @@
 |------|------|------|------|
 | Phase 0 | 论文调研与算法确定 | — | 背景持续，与开发重叠 |
 | Phase 1 | veRL双模引擎改造 | 0 | 核心难点，先做 |
-| Phase 2 | 自进化评判系统 | 1 | 核心难点，后做 |
-| Phase 3 | 集成与Dashboard | 1+2 | 串联 |
-| Phase 4 | 测试集与效果评估 | 3 | 框架完成后 |
+| Phase 1.5 | 数据工程与模拟测试环境 | 1 | 效果验证必备，Phase 2 前置 |
+| Phase 2 | 自进化评判系统 | 1.5 | 核心难点，后做 |
+| Phase 3 | 集成与Dashboard | 1.5+2 | 串联 |
+| Phase 4 | 生产环境评估 | 3 | 框架完成后 |
 
 ## 时间线（单线程，目标 5/16 → 6/16）
 
@@ -51,32 +52,40 @@ Week 2 (5/23-5/29):
   A2: 空闲检测 + 训练触发
   A3: 权重同步 + 恢复推理
   Phase 0: 算法方向确定 ────────────────── 背景进行
+  B0: 对话日志系统 (SQLite)
 
 Week 3 (5/30-6/5):
+  Phase 1.5: 数据工程 ──────────────────── S1-S5 模拟测试环境
+
+Week 4 (6/6-6/12):
   B1: 用户反馈收集与分析
   B2: LLM自主生成Rubrics
 
-Week 4 (6/6-6/12):
+Week 5 (6/13-6/19):
   B3: Rubric执行器 (LLM Judge)
+
+Week 6 (6/20-6/26):
   C1: 主循环串联 ───────────────────────── 关键里程碑
 
-缓冲 (6/13-6/16):
+缓冲 (6/27-6/30):
   B4: Rubric演进 (基本版)
   C2: Dashboard (简化版)
   联调、修bug、写文档
 ```
 
-### MVP交付物（6/16）
+### MVP交付物（6/30）
 
 - veRL 常驻推理 API 服务可运行
 - 空闲时自动触发训练，训练完恢复推理
+- 模拟测试环境：5 个用户画像，可控反馈闭环
 - LLM 从用户反馈中生成 Rubrics 并执行打分
+- Judge 校准数据 + 评估指标体系
 - 核心闭环走通：请求 → 日志 → 评判 → 训练 → 恢复
 - 简易 Dashboard
 
 ### 推迟到一个月后
 
-- Phase 4 (D1/D2/D3)：测试集构建、效果评估体系
+- Phase 4 (D1/D2/D3)：生产环境评估、A/B 测试
 - Rubric 精细化调优
 - 生产级错误处理、监控告警
 
@@ -221,13 +230,298 @@ Week 4 (6/6-6/12):
 
 ---
 
+## Phase 1.5: 数据工程与模拟测试环境
+
+> 目标：在开发自进化评判系统之前，先搭建可控的模拟测试环境。
+> 没有可靠的测试环境和评估手段，就无法判断 Phase 2 的 B1/B2/B3 是否做对了。
+
+### 设计出发点：用强模型做老师，纠错对话就是训练数据
+
+核心思路很简单——用一个强大的模型（DeepSeek-v4-flash）扮演"用户"，主动发现并纠正 Qwen3-4B 的错误，逐步引导它做出更好的回答。
+
+```
+一条 LMSYS 种子 prompt: "Write a sorting function in Python"
+
+   User Sim Agent                          Qwen3-4B 推理服务
+   (DeepSeek-v4-flash, 扮演挑剔的用户)       (被训练的模型)
+   ─────────────────────                   ──────────────────
+   
+   ① 提出任务:
+   "帮我写个排序函数"           ──────→     "def sort_list(a, b): ..."
+                                          ↑ 变量名糟糕、无类型注解
+   ② 发现错误，给出纠错:
+   "a和b是什么意思？             ←──────   
+   能不能用有意义的变量名？
+   还有，加上类型注解"
+
+   ③ Qwen3-4B 修正后:           ──────→     "def merge_sort(
+                                              seq: list[int]
+                                          ) -> list[int]: ..."
+                                          ↑ 有进步，但没处理边缘情况
+   ④ 继续纠错:
+   "空列表传入会怎样？           ←──────   
+   你考虑过吗？加上边界处理"
+
+   ⑤ 最终版本:                  ──────→     正确处理空列表、类型完整、
+                                          命名清晰、有文档字符串 ✅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+这条 3 轮纠错对话包含:
+  ✅ 训练数据: (bad_answer, correction, better_answer) × 3 轮
+  ✅ 测试数据: 同类 prompt → 看模型是否不需要纠正就能答对
+  ✅ Rubric 种子: "变量命名规范" "类型注解完整性" "边界条件处理"
+  
+  1 条 LMSYS prompt × User Sim 纠错能力 = 1 条高质量训练轨迹
+  N 条 LMSYS prompts × 多种 persona = N 条不同角度的训练轨迹
+```
+
+**LMSYS 在这里的作用：**
+
+```
+LMSYS 提供:                                 LMSYS 不提供（也不需要）:
+  ✅ 真实用户 prompt（15个类别 × N条）          ✗ quality_score（不需要）
+  ✅ 话题分布统计（确保扩展不偏）                ✗ assistant 回答（不需要）
+  ✅ 用户意图多样性（提问/指令/创作/...）        ✗ flaw 标注（User Sim 自己判断）
+  
+  → 从 LMSYS 抽 prompts 作为"种子问题"
+  → User Sim 自己生成"正确答案"和"纠错路径"
+  → 不需要 LMSYS 告诉我们"什么是好答案"
+```
+
+### 种子扩展流水线
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                    种子扩展引擎（参考 AReaL-SEA 多 Agent 架构）             │
+│                                                                          │
+│  输入: LMSYS 中的 prompt（如 "Write a sorting function in Python"）       │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │ Step 1: 种子抽取 (Seed Extractor)                                │    │
+│  │   从 LMSYS 按分层抽样抽取 prompts:                                │    │
+│  │     • 按 15 个类别分层（coding / math / writing / ...）           │    │
+│  │     • 按难度分层（问题复杂度 / 多轮程度）                          │    │
+│  │     • 去重、过滤过短/无意义 prompt                                │    │
+│  │   输出: 种子 prompt 池 (~5000 prompts, 覆盖 15 类别)              │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│       │                                                                  │
+│       ▼                                                                  │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │ Step 2: 场景构建 (Meta-Plan Agent)                                │    │
+│  │   输入: 种子 prompt + LMSYS 话题分布                               │    │
+│  │   为每条 prompt 生成 (persona, expected_correction_areas):         │    │
+│  │     • persona: 用户角色 + 关注维度 + 严格程度                     │    │
+│  │     • expected_areas: 该 prompt 类型常见的错误模式                │    │
+│  │       （User Sim 不会"预设"错误，但知道从哪些维度检查）             │    │
+│  │   输出: (prompt, persona, check_dimensions) 三元组                 │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│       │                                                                  │
+│       ▼                                                                  │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │ Step 3: 交互生成 (Interaction Engine)                             │    │
+│  │                                                                   │    │
+│  │   ┌─────────────────────┐      ┌─────────────────────┐           │    │
+│  │   │  User Sim Agent      │      │  Qwen3-4B 推理服务    │           │    │
+│  │   │  (DeepSeek-v4-flash)  │ ←──→ │  (被训练对象)         │           │    │
+│  │   │                      │      │                      │           │    │
+│  │   │  ① 提出任务           │      │  ② 生成回答           │           │    │
+│  │   │  ③ 按 persona 审查:   │      │  ④ 接收纠错 → 修改    │           │    │
+│  │   │     发现错误 → 指正   │      │     继续完善           │           │    │
+│  │   │     没有错误 → 通过   │      │                      │           │    │
+│  │   │  ⑤ 最终确认 ✅        │      │                      │           │    │
+│  │   └─────────────────────┘      └─────────────────────┘           │    │
+│  │                                                                   │    │
+│  │   输出: 完整纠错轨迹 (prompt → answer_v1 → correction_1 →        │    │
+│  │          answer_v2 → correction_2 → ... → answer_final ✅)        │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│       │                                                                  │
+│       ▼                                                                  │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │ Step 4: 轨迹评估 (Trajectory Judge)                               │    │
+│  │   评估维度:                                                        │    │
+│  │     • 最终回答是否正确？(User Sim 是否最终满意)                   │    │
+│  │     • 纠错效率: 0轮直接通过 / 1-2轮 / 3轮+                        │    │
+│  │     • 每次纠错是否合理？（有具体问题，不是泛泛说"不好"）            │    │
+│  │     • 改进是否定向？（不是胡乱改，而是针对指出的问题）              │    │
+│  │   输出: SUCCESS/FAIL + 纠错轮次 + 纠错维度标签                     │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│       │                                                                  │
+│       ├── SUCCESS → 存入 ConversationStore                              │
+│       │             导出训练数据 (bad→correction→good 三元组)            │
+│       │             提取纠错维度 → 积累为 Rubric 种子                    │
+│       │                                                                  │
+│       └── FAIL → Reflection Module                                       │
+│                 分析: 为什么纠错失败？                                    │
+│                 - Qwen3-4B 能力不够？→ 标记为"难"，积累后触发训练        │
+│                 - User Sim 纠错不清？→ 改进 User Sim prompt              │
+│                 - prompt 本身太难？→ 降低难度或换 prompt                 │
+│                 下一轮生成更精准的纠错场景                                 │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+### 评估标准：纠错率取代质量分
+
+不追求 LMSYS 的连续质量分（0-1），而是更简单、更可验证的指标：
+
+```
+传统方案:                      本方案:
+  Judge 给回答打分 0.85          User Sim 与模型交互，数一数
+  问: 0.85 算高还是低？          用户纠正了几次？
+  答: 不知道，要对比基线         问: 纠错次数下降了吗？
+                                答: 下降了 → 模型在进步 ✓
+
+训练奖励信号:
+  旧: reward = quality_score (连续值，需要校准)
+  新: reward = 1 - (纠错轮次 / 最大轮次)  
+      或者更简单: 0轮纠错=1, ≥3轮=0
+      → 二值/序数值，不需要 LMSYS 校准
+```
+
+### Step S1 — LMSYS 种子数据抽取
+
+**来源**: LMSYS-Chat-1M（已导入 ConversationStore，24.6 万训练 + 2.7 万测试）
+
+**做什么**: 从 LMSYS 中抽取高质量的 prompt 作为种子，不关心 LMSYS 的 assistant 回答和 quality_score。
+
+**要做的事：**
+
+1. 从 ConversationStore 按分层抽样抽取种子 prompt 池：
+   - 按 15 个类别分层（explanation / coding / math / writing / ...）
+   - 每个类别抽 200-400 条，总池 ~5000 prompts
+   - 过滤：过短的（<10字）、纯闲聊的、内容不完整的
+   - 去重：语义相似度 > 0.9 的只保留一条
+2. 为每条 prompt 标注：
+   - `category`: LMSYS 原始分类
+   - `complexity`: simple / moderate / complex（由 LLM 分析 prompt 复杂性）
+   - `expected_dimensions`: 该任务的评估维度（如 coding → correctness/naming/types/edge_cases）
+3. 建立种子 prompt 索引，供 Meta-Plan Agent 使用
+
+**产物**: `data/seed_prompts.jsonl` — 分层抽样的种子 prompt 池
+
+**验证**: 5000 条种子覆盖 15 个类别，每类 >= 200 条
+
+---
+
+### Step S2 — 用户模拟 + 纠错交互生成
+
+**核心**: User Sim Agent (DeepSeek-v4-flash) 扮演挑剔的用户，主动发现并纠正 Qwen3-4B 的错误。
+
+**要做的事：**
+
+1. Meta-Plan Agent 为每条种子 prompt 生成交互方案：
+   - 选择合适的 persona（代码审查者 / 数学老师 / 编辑 / 安全专家 / ...）
+   - 设定该 persona 的检查维度（e.g., 代码审查者 → 正确性 + 命名 + 类型 + 边界）
+   - 生成 User Sim 的 system prompt（准确描述角色和纠错标准）
+2. Interaction Engine 执行多轮纠错交互：
+   - User Sim 提出任务 → Qwen3-4B 生成 → User Sim 审查 → 纠错 → Qwen3-4B 修改 → ... → User Sim 满意或放弃
+   - 每轮记录：(turn, speaker, content, correction_type_if_any)
+3. 纠错规则：
+   - User Sim 不能"预设错误"——必须基于 Qwen3-4B 的实际输出指出问题
+   - 纠错必须具体，不能泛泛说"不够好"
+   - 同一维度不重复纠错（3 轮后还不改 → 标记 FAIL，不再纠）
+
+**产物**:
+- `trainable_openclaw/simulation/user_sim.py` — User Sim Agent
+- `trainable_openclaw/simulation/engine.py` — 多轮交互引擎
+- `data/correction_trajectories.jsonl` — 纠错轨迹数据集
+
+**验证**:
+- 100 条种子 prompt × 3 种 persona = 300 条纠错轨迹
+- 每条轨迹包含 ≥ 1 轮交互
+- User Sim 纠错抽查 50 条，合理率 > 80%
+
+---
+
+### Step S3 — 轨迹评估与数据导出
+
+**要做的事：**
+
+1. Trajectory Judge 评估每条纠错轨迹：
+   - 分级: `direct_pass`（无需纠正）/ `corrected`（纠正后通过）/ `partial`（部分纠正）/ `failed`（纠正失败）
+   - 提取纠错维度标签（该轨迹涉及了哪些纠错点）
+2. 数据分流：
+   - `direct_pass + corrected` → 训练集（正例：模型最终做对了）
+   - `partial` → 训练集（带纠错标签的部分正确样本）
+   - `failed` → 分析集（留给 Reflection 分析根因）
+3. 格式化导出：
+   - 训练数据: `(prompt, bad_answer, correction, good_answer)` 四元组
+   - Rubric 种子: 从纠错维度中聚合高频问题（如 "变量命名不规范" 出现 50 次 → 生成 rubric）
+
+**产物**:
+- `data/train_correction_pairs.jsonl` — 训练数据
+- `data/test_prompts.jsonl` — 测试用 prompt（不含 LMSYS 参考回答）
+- `data/rubric_seeds.json` — 从纠错中聚合的 rubric 种子
+
+**验证**:
+- 训练集 ≥ 200 条（direct_pass + corrected）
+- 每个类别有 ≥ 5 条纠错维度标签
+
+---
+
+### Step S4 — 反思与持续优化
+
+**参考**: AReaL-SEA 的 Reflection Module + Closed-Loop Evolution
+
+**要做的事：**
+
+1. Reflection Agent 分析 FAIL 轨迹：
+   - 根因分类：模型能力不足 / User Sim 纠错不合理 / prompt 歧义
+   - 模型能力不足 → 增加该类型 prompt 的训练权重
+   - User Sim 不合理 → 更新 User Sim prompt，改进纠错策略
+2. 迭代优化：
+   - 每轮 Reflection 后更新 Meta-Plan 和 User Sim 的 prompt
+   - 下一轮生成的纠错轨迹质量提升（FAIL 率下降）
+3. 持续积累：
+   - 纠错维度标签 → B2 Rubric 生成器的输入
+   - 训练数据积累 → 触发 GRPO 训练
+
+**产物**:
+- `trainable_openclaw/simulation/reflection.py` — 反思模块
+- `configs/simulation/` — User Sim / Meta-Plan / Judge 的 prompt 模板（持续迭代）
+
+**验证**:
+- 3 轮迭代后 FAIL 率下降 ≥ 10%
+- Reflection 输出有可操作的改进建议（非泛泛分析）
+
+---
+
+### Step S5 — 评估指标体系
+
+**核心指标: 纠错率 (Correction Rate)**
+
+| 指标 | 计算方式 | 含义 |
+|------|---------|------|
+| **纠错率** | 需要纠正的交互 / 总交互 | 越低越好 → 模型在进步 |
+| **平均纠错轮次** | Σ纠错轮次 / 需纠正的交互数 | 越低越好 → 模型改得快 |
+| **一次通过率** | 无需纠正直接满意的交互 / 总交互 | 越高越好 |
+| **纠错闭环率** | 纠正后最终满意的交互 / 需纠正的交互 | 越高越好 → 模型能学会 |
+
+**辅助指标:**
+
+| 指标 | 用途 |
+|------|------|
+| 种子覆盖率 | 扩展场景覆盖了多少种子的纠错模式 | 确保扩展不偏离真实需求 |
+| LMSYS 分布对齐度 | 扩展数据的类别/难度分布 vs LMSYS 真实分布 | 防止分布偏移 |
+| User Sim 合理率 | 用户模拟的纠错质量（人工抽查） | 论文关键发现：差模拟器腐蚀训练 |
+| 训练前后 Δ纠错率 | 训练后纠错率的变化 | 衡量自进化效果 |
+
+**产出**:
+- `trainable_openclaw/evaluation/metrics.py` — 指标计算模块
+
+**验证方式**:
+- 每个指标实现为独立函数
+- 用 mock 数据验证计算正确性
+
+---
+
 ## Phase 2: 自进化评判系统
 
 > 核心理念：**Rubrics不是人工预设的，而是LLM从用户反馈中自主归纳生成的。**
 >
 > 流程：用户多轮反馈 → LLM分析反馈模式 → 自动生成严格评分任务 → 执行打分 → 随反馈积累演进
 >
-> 预估：~2 周（W3-W4）
+> 预估：~2 周（W4-W5）
 
 ### Step B1 — 用户反馈收集与分析
 
@@ -335,9 +629,10 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 
 ---
 
-## Phase 4: 测试集与效果评估（一个月后）
+## Phase 4: 生产环境评估（一个月后）
 
-> 目标：量化系统效果，证明自进化训练确实提升了模型能力。
+> 目标：上线后在真实用户场景下量化系统效果，证明自进化训练确实提升了模型能力。
+> 开发阶段的模拟验证已在 Phase 1.5 完成，Phase 4 关注生产环境表现。
 
 ### Step D1 — 测试集构建
 
@@ -365,16 +660,20 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 | 0.2 | LLM-as-Judge调研 | ⬜ | | 背景进行 |
 | 0.3 | GRPO/RL算法调研 | ⬜ | | 背景进行 |
 | 0.4 | 算法方向确定 | ⬜ | | 背景进行 |
-| A1 | Rollout API Server | ✅ 已完成 | 2026-05-22 | FastAPI + vLLM Qwen3-4B, OpenAI-compatible, 12 GPU集成测试通过 |
-| A2 | 空闲检测+训练触发 | ✅ 已完成 | 2026-05-22 | orchestrator + idle_timeout + min_samples, 5 GPU集成测试通过 |
-| A3 | 权重同步+恢复推理+GRPO | ✅ 已完成 | 2026-05-25 | CheckpointEngineManager weight sync + GRPO训练闭环, 9 GPU集成测试通过 |
-| B0 | 对话日志系统 | ✅ 已完成 | 2026-05-29 | SQLite + WAL, sessions/messages 双表, CLI viewer, 23 测试通过 |
-| B1 | 用户反馈收集与分析 | ⬜ | | W3 |
-| B1.2 | OASST2 数据处理 | 🟡 进行中 | 2026-05-29 | 数据集下载/解析/划分, 模拟用户反馈, 基础模型评测 |
-| B2 | LLM自主生成Rubrics | ⬜ | | W3 |
-| B3 | Rubric执行器(Judge) | ⬜ | | W4 |
+| A1 | Rollout API Server | ✅ 已完成 | 2026-05-22 | FastAPI + vLLM Qwen3-4B, OpenAI-compatible |
+| A2 | 空闲检测+训练触发 | ✅ 已完成 | 2026-05-22 | orchestrator + idle_timeout + min_samples |
+| A3 | 权重同步+恢复推理+GRPO | ✅ 已完成 | 2026-05-25 | CheckpointEngineManager weight sync + GRPO训练闭环 |
+| B0 | 对话日志系统 | ✅ 已完成 | 2026-05-29 | SQLite + WAL, sessions/messages 双表, CLI viewer, 34 测试 |
+| **S1** | **LMSYS 种子数据抽取** | 🟡 进行中 | 2026-05-29 | 分层抽样 ~5000 prompts, 15 类别 |
+| **S2** | **用户模拟 + 纠错交互生成** | ⬜ | | User Sim (DeepSeek) ↔ Qwen3-4B 多轮纠错 |
+| **S3** | **轨迹评估与数据导出** | ⬜ | | 分级 + 格式化 → 训练/测试/rubric种子 |
+| **S4** | **反思与持续优化** | ⬜ | | Reflection → 更新 prompts → FAIL率下降 |
+| **S5** | **评估指标体系** | ⬜ | | 核心: 纠错率/直接通过率/FAIL率 |
+| B1 | 用户反馈收集与分析 | ⬜ | | 依赖 S1-S3 种子+扩展数据 |
+| B2 | LLM自主生成Rubrics | ⬜ | | 依赖 S3 交互轨迹 |
+| B3 | Rubric执行器(Judge) | ⬜ | | |
 | B4 | Rubric持续演进 | ⬜ | | 缓冲 |
-| C1 | 主循环串联 | ⬜ | | W4 关键里程碑 |
+| C1 | 主循环串联 | ⬜ | | 关键里程碑 |
 | C2 | Dashboard | ⬜ | | 缓冲 |
 | D1 | 测试集构建 | ⬜ | | 一个月后 |
 | D2 | 效果评估体系 | ⬜ | | 一个月后 |

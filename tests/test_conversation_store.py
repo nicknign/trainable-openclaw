@@ -290,6 +290,108 @@ def test_concurrent_writes(store):
 
 
 # ---------------------------------------------------------------------------
+# Unicode & special characters
+# ---------------------------------------------------------------------------
+
+
+def test_unicode_content(store):
+    sid = store.create_session("测试用户")
+    store.add_message(sid, "user", "你好，世界！")
+    store.add_message(sid, "assistant", "Hello 世界 🌍")
+    msgs = store.get_messages(sid)
+    assert len(msgs) == 2
+    assert msgs[0]["content"] == "你好，世界！"
+    assert msgs[1]["content"] == "Hello 世界 🌍"
+
+
+def test_special_sql_characters(store):
+    sid = store.create_session("alice")
+    tricky = "What's up? SELECT * FROM users; -- DROP TABLE messages;"
+    store.add_message(sid, "user", tricky)
+    msgs = store.get_messages(sid)
+    assert msgs[0]["content"] == tricky
+
+
+def test_long_content(store):
+    sid = store.create_session("alice")
+    long_text = "Hello " * 10000
+    store.add_message(sid, "user", long_text)
+    msgs = store.get_messages(sid)
+    assert len(msgs[0]["content"]) == len(long_text)
+
+
+def test_empty_content(store):
+    sid = store.create_session("alice")
+    store.add_message(sid, "user", "")
+    msgs = store.get_messages(sid)
+    assert msgs[0]["content"] == ""
+
+
+def test_search_unicode(store):
+    sid = store.create_session("alice")
+    store.add_message(sid, "user", "检查代码中的异常处理")
+    store.add_message(sid, "user", "testing error handling")
+    results = store.search_content("异常")
+    assert len(results) == 1
+    results = store.search_content("error")
+    assert len(results) == 1
+
+
+def test_zero_token_count(store):
+    sid = store.create_session("alice")
+    mid = store.add_message(sid, "user", "hi", token_count=0)
+    msgs = store.get_messages(sid)
+    assert msgs[0]["token_count"] == 0
+
+
+def test_many_messages_in_session(store):
+    sid = store.create_session("alice")
+    for i in range(500):
+        store.add_message(sid, "user" if i % 2 == 0 else "assistant", f"msg {i}")
+    assert len(store.get_messages(sid)) == 500
+    s = store.get_session(sid)
+    assert s["message_count"] == 500
+
+
+def test_statistics_after_delete(store):
+    sid = store.create_session("alice")
+    store.add_message(sid, "user", "a")
+    store.add_message(sid, "assistant", "b")
+    store.delete_session(sid)
+    stats = store.get_statistics()
+    assert stats["total_sessions"] == 0
+    assert stats["total_messages"] == 0
+
+
+def test_create_session_without_model(store):
+    sid = store.create_session("alice")
+    s = store.get_session(sid)
+    assert s["model"] is None
+
+
+def test_add_message_without_optionals(store):
+    sid = store.create_session("alice")
+    mid = store.add_message(sid, "system", "Ready.")
+    msgs = store.get_messages(sid)
+    m = msgs[0]
+    assert m["token_count"] is None
+    assert m["latency_ms"] is None
+    assert m["temperature"] is None
+    assert m["max_tokens"] is None
+    assert m["stop_reason"] is None
+
+
+def test_user_id_and_content_in_query_result(store):
+    """query_messages should include user_id from JOIN with sessions."""
+    sid = store.create_session("bob")
+    store.add_message(sid, "user", "hello")
+    results = store.query_messages()
+    assert len(results) >= 1
+    assert results[0]["user_id"] == "bob"
+    assert results[0]["content"] == "hello"
+
+
+# ---------------------------------------------------------------------------
 # close
 # ---------------------------------------------------------------------------
 
