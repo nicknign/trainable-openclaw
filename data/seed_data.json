@@ -1,0 +1,112 @@
+[
+  {
+    "user_id": "coder_zhang",
+    "model": "qwen3-4b",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Write a Python function to merge two sorted lists and remove duplicates"
+      },
+      {
+        "role": "assistant",
+        "content": "def merge_dedup(seq1, seq2):\n    \"\"\"Merge two sorted lists, removing duplicates.\"\"\"\n    result = []\n    i = j = 0\n    while i < len(seq1) and j < len(seq2):\n        if seq1[i] < seq2[j]:\n            if not result or result[-1] != seq1[i]:\n                result.append(seq1[i])\n            i += 1\n        else:\n            if not result or result[-1] != seq2[j]:\n                result.append(seq2[j])\n            j += 1\n    result.extend(seq1[i:])\n    result.extend(seq2[j:])\n    return result",
+        "quality_score": 0.85,
+        "feedback": "Correct but var names could be more descriptive"
+      },
+      {
+        "role": "user",
+        "content": "Can you add type hints and a docstring?"
+      },
+      {
+        "role": "assistant",
+        "content": "def merge_dedup(seq1: list[int], seq2: list[int]) -> list[int]:\n    \"\"\"Merge two sorted lists into one sorted list without duplicates.\n    Args: seq1: first sorted list; seq2: second sorted list\n    Returns: Merged and deduplicated sorted list\n    \"\"\"\n    result: list[int] = []\n    i = j = 0\n    while i < len(seq1) and j < len(seq2):\n        if seq1[i] < seq2[j]:\n            if not result or result[-1] != seq1[i]:\n                result.append(seq1[i])\n            i += 1\n        else:\n            if not result or result[-1] != seq2[j]:\n                result.append(seq2[j])\n            j += 1\n    result.extend(seq1[i:])\n    result.extend(seq2[j:])\n    return result",
+        "quality_score": 0.92,
+        "feedback": "Complete with type hints and clear docstring"
+      }
+    ]
+  },
+  {
+    "user_id": "coder_zhang",
+    "model": "qwen3-4b",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Explain Python GIL (Global Interpreter Lock)"
+      },
+      {
+        "role": "assistant",
+        "content": "The GIL is a mutex in CPython that prevents multiple threads from executing Python bytecode simultaneously. It simplifies memory management but limits multi-core CPU utilization. For I/O-bound tasks, threading works fine. For CPU-bound tasks, use multiprocessing or C extensions.",
+        "quality_score": 0.78,
+        "feedback": "Accurate but could add historical context"
+      },
+      {
+        "role": "user",
+        "content": "How does asyncio relate to the GIL?"
+      },
+      {
+        "role": "assistant",
+        "content": "asyncio runs in a single thread with an event loop, so it does not bypass the GIL. But being single-threaded, it avoids GIL contention overhead. asyncio is ideal for I/O-bound concurrency via cooperative multitasking. Threading is subject to GIL but C extensions can release it; asyncio sidesteps this entirely but does not help with CPU-bound work.",
+        "quality_score": 0.88,
+        "feedback": "Clear explanation of asyncio vs GIL relationship"
+      }
+    ]
+  },
+  {
+    "user_id": "dev_alex",
+    "model": "qwen3-4b",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Set up a FastAPI endpoint for file uploads with streaming, size limit, and type check"
+      },
+      {
+        "role": "assistant",
+        "content": "from fastapi import FastAPI, UploadFile, File, HTTPException\nfrom pathlib import Path\nimport mimetypes\n\napp = FastAPI()\nUPLOAD_DIR = Path(\"uploads\")\nUPLOAD_DIR.mkdir(exist_ok=True)\nMAX_SIZE = 10 * 1024 * 1024\nALLOWED = {\"image/jpeg\", \"image/png\", \"image/gif\"}\n\n@app.post(\"/upload\")\nasync def upload(file: UploadFile = File(...)):\n    if not file.filename:\n        raise HTTPException(400, \"No file\")\n    mime, _ = mimetypes.guess_type(file.filename)\n    if mime not in ALLOWED:\n        raise HTTPException(415, f\"{mime} not allowed\")\n    file_path = UPLOAD_DIR / file.filename\n    total = 0\n    with file_path.open(\"wb\") as buf:\n        while chunk := await file.read(1024*1024):\n            total += len(chunk)\n            if total > MAX_SIZE:\n                file_path.unlink()\n                raise HTTPException(413, \"Too large\")\n            buf.write(chunk)\n    return {\"filename\": file.filename, \"size\": total}",
+        "quality_score": 0.95,
+        "feedback": "Production-ready streaming upload"
+      }
+    ]
+  },
+  {
+    "user_id": "math_student",
+    "model": "qwen3-4b",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Find the extrema of f(x) = x^3 - 3x^2 + 2x on [0, 3]"
+      },
+      {
+        "role": "assistant",
+        "content": "f'(x) = 3x^2 - 6x + 2\nSet f'(x) = 0: x = 1 +/- 1/sqrt(3)\nCritical points in [0,3]: x = 1 - 1/sqrt(3), x = 1 + 1/sqrt(3)\n\nf(0) = 0\nf(1 - 1/sqrt(3)) = 2/(3*sqrt(3))\nf(1 + 1/sqrt(3)) = -2/(3*sqrt(3))\nf(3) = 6\n\nMaximum: f(3) = 6\nMinimum: f(1 + 1/sqrt(3)) = -2/(3*sqrt(3))",
+        "quality_score": 0.9,
+        "feedback": "Correct step-by-step, exact values used"
+      }
+    ]
+  },
+  {
+    "user_id": "qa_tester",
+    "model": "qwen3-4b",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What can you do as an AI assistant?"
+      },
+      {
+        "role": "assistant",
+        "content": "I am an AI assistant based on the Qwen model series. I can help with:\n- Knowledge questions: science, history, technology\n- Code: writing, debugging, explaining many languages\n- Writing: essays, stories, documentation, translations\n- Math: calculations, proofs, explanations\n- Conversation: multi-turn dialogue, brainstorming\n\nLimitations: My knowledge has a cutoff date, I cannot access the internet in real-time, and I may occasionally make mistakes.",
+        "quality_score": 0.82,
+        "feedback": "Good overview with limitations mentioned"
+      },
+      {
+        "role": "user",
+        "content": "How do you approach code generation requests?"
+      },
+      {
+        "role": "assistant",
+        "content": "My process for code generation:\n1. Understand the requirements: inputs, outputs, constraints\n2. Analyze algorithms: time/space complexity trade-offs\n3. Write clean code: meaningful names, idiomatic style\n4. Handle errors: validate inputs, clear error messages\n5. Self-review: walk through normal and edge cases\n6. Explain: add comments for non-obvious logic\n\nFor complex tasks, I may ask clarifying questions before coding.",
+        "quality_score": 0.9,
+        "feedback": "Transparent, well-structured explanation"
+      }
+    ]
+  }
+]
