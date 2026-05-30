@@ -664,8 +664,8 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 | A2 | 空闲检测+训练触发 | ✅ 已完成 | 2026-05-22 | orchestrator + idle_timeout + min_samples |
 | A3 | 权重同步+恢复推理+GRPO | ✅ 已完成 | 2026-05-25 | CheckpointEngineManager weight sync + GRPO训练闭环 |
 | B0 | 对话日志系统 | ✅ 已完成 | 2026-05-29 | SQLite + WAL, sessions/messages 双表, CLI viewer, 34 测试 |
-| **S1** | **LMSYS 种子数据抽取** | 🟡 进行中 | 2026-05-29 | 分层抽样 ~5000 prompts, 15 类别 |
-| **S2** | **用户模拟 + 纠错交互生成** | ⬜ | | User Sim (DeepSeek) ↔ Qwen3-4B 多轮纠错 |
+| **S1** | **LMSYS 种子数据抽取** | ✅ 已完成 | 2026-05-29 | 3200 prompts, 32 类别, 均衡分布 |
+| **S2** | **用户模拟 + 纠错交互生成** | 🟡 进行中 | 2026-05-30 | 5 画像 × 多轮纠错, 训练集 100 通生成中 |
 | **S3** | **轨迹评估与数据导出** | ⬜ | | 分级 + 格式化 → 训练/测试/rubric种子 |
 | **S4** | **反思与持续优化** | ⬜ | | Reflection → 更新 prompts → FAIL率下降 |
 | **S5** | **评估指标体系** | ⬜ | | 核心: 纠错率/直接通过率/FAIL率 |
@@ -697,3 +697,29 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 | `scripts/run_serve_ppo.sh` | 生产启动（GSM8K enabled, idle_timeout=30） |
 | `scripts/run_serve_ppo_test.sh` | 测试启动（低阈值, GSM8K disabled） |
 | `scripts/run_gsm8k_e2e_test.sh` | GSM8K 端到端测试（20 steps, batch=64） |
+
+### Phase 1.5 S2 进度（2026-05-30）
+
+**S1 种子抽取已完成，S2 仿真流水线搭建完成，训练/测试数据集生成中。**
+
+**关键成果：**
+- `scripts/run_simulation.py` — 自包含仿真脚本（~800 行），支持真实/模拟/空跑/统计四种模式
+- 5 种用户画像均衡覆盖 32 个 LMSYS 类别（之前 53% 单一画像，已修复）
+- 多轮纠错对话引擎：User Sim (DeepSeek) ↔ Qwen3-4B，串行逐条执行
+- Messages 格式记录：`[{role, content, reasoning}]`，`<think>` 提取到 `reasoning`
+- GPU 服务器稳定运行：RTX 4080 SUPER, serve_ppo HYBRID 模式, Qwen3-4B + LoRA
+
+**数据集制作中：**
+| 文件 | 数量 | 状态 |
+|------|------|------|
+| `data/seed_prompts.jsonl` | 3200 prompts, 32 类别 | ✅ 已完成 |
+| `data/seed_train_100.jsonl` | 100 prompts (打乱) | ✅ 已拆分 |
+| `data/seed_test_50.jsonl` | 50 prompts (打乱) | ✅ 已拆分 |
+| `data/train_trajectories.jsonl` | 100 通纠错对话 | 🟡 生成中 (~2h) |
+| `data/test_trajectories.jsonl` | 50 通纠错对话 | ⬜ 待生成 |
+
+**后续流程（S3+）：**
+- 轨迹评估分级（direct_pass / corrected / partial / failed）
+- 提取训练对: `(bad_answer, correction, good_answer)` 三元组
+- 纠错维度聚合 → Rubric 种子
+- 训练集/测试集 → 验证自进化引擎训练提升效果

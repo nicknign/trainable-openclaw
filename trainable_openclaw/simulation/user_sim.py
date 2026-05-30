@@ -342,11 +342,12 @@ def select_persona(category: str) -> str:
       qa_tester:   general QA, explanation, translation (fallback)
     """
     mapping = {
-        # coder_zhang — code, debugging
+        # 张工 — 代码/教程/文本转换
         "coding": "coder_zhang",
         "debugging": "coder_zhang",
-        # writer_li — writing, editing, language
-        "writing": "writer_li",
+        "tutorial": "coder_zhang",
+        "text manipulation": "coder_zhang",
+        # 李编辑 — 写作/语言/聊天
         "creative writing": "writer_li",
         "copywriting": "writer_li",
         "proofreading": "writer_li",
@@ -354,35 +355,32 @@ def select_persona(category: str) -> str:
         "specific format writing": "writer_li",
         "roleplaying": "writer_li",
         "text completion": "writer_li",
-        # math_student — math, logic, reasoning
+        "translation": "writer_li",
+        "free-form chat": "writer_li",
+        # 王同学 — 数学/逻辑/推理/对比/总结
         "math": "math_student",
         "science": "math_student",
         "logical reasoning": "math_student",
         "reasoning": "math_student",
         "spatial reasoning": "math_student",
         "pattern recognition": "math_student",
-        # dev_alex — engineering quality, security, planning
+        "debating": "math_student",
+        "ethical reasoning": "math_student",
+        "text comparison": "math_student",
+        "summarization": "math_student",
+        # Alex — 工程/规划/头脑风暴/解释/信息提取
         "engineering": "dev_alex",
         "instruction following": "dev_alex",
         "planning and scheduling": "dev_alex",
-        # qa_tester — everything else
-        "explanation": "qa_tester",
+        "brainstorming": "dev_alex",
+        "explanation": "dev_alex",
+        "information extraction": "dev_alex",
+        # 陈测试 — QA/分类/常识（默认兜底）
         "question answering": "qa_tester",
         "question generation": "qa_tester",
-        "summarization": "qa_tester",
-        "translation": "qa_tester",
-        "text classification": "qa_tester",
-        "text comparison": "qa_tester",
-        "text manipulation": "qa_tester",
         "sentiment analysis": "qa_tester",
-        "information extraction": "qa_tester",
-        "tutorial": "qa_tester",
-        "brainstorming": "qa_tester",
-        "debating": "qa_tester",
-        "ethical reasoning": "qa_tester",
+        "text classification": "qa_tester",
         "trivia": "qa_tester",
-        "free-form chat": "qa_tester",
-        "general": "qa_tester",
-        "safety": "qa_tester",
+        "unknown": "qa_tester",
     }
     return mapping.get(category.lower(), "qa_tester")

@@ -124,7 +124,7 @@ class InferenceClient:
 
     def __init__(
         self,
-        base_url: str = "http://localhost:8000",
+        base_url: str = "http://localhost:8000/v1",
         model: str = "default",
         api_key: str = "",
         mock_model: str = "deepseek-v4-flash",
@@ -161,11 +161,19 @@ class InferenceClient:
                 self._mock = False
 
         if getattr(self, "_mock", False):
-            # Use DeepSeek with a system prompt that simulates Qwen3-4B behavior
+            # DeepSeek simulating Qwen3-4B: deliberately role-play as a 4B-param model.
+            # Key: it should make realistic small-model mistakes so the User Sim has
+            # something to correct. Without this, DeepSeek gives perfect answers and
+            # every trajectory is "direct_pass".
             mock_system = (
-                "你是一个AI助手（Qwen3-4B级别的模型）。请根据用户的请求生成回答。"
-                "你的能力有限，可能会犯一些错误。请自然地回答，不需要刻意犯错。"
-                "你就是你自己的水平，不需要说明你是哪个模型。"
+                "你是一个小型开源AI助手（Qwen3-4B级别的模型，只有40亿参数）。"
+                "请模拟这个级别模型的行为特点来生成回答：\n"
+                "1. 回答质量参差不齐——有时好有时有疏漏\n"
+                "2. 常见的弱模型毛病：变量名不够表意、缺少类型注解、边界条件考虑不全、"
+                "解释不够深入、论据不够充分、偶尔忽略细节\n"
+                "3. 不要刻意砸锅，但要像真的人类初学者/初级工程师那样自然地遗漏一些东西\n"
+                "4. 不要自称'我是Qwen3-4B'，像正常AI助手一样回答\n"
+                "5. 你的回答应该大体正确但有小毛病——这才是真实的4B模型水平"
             )
             mock_messages = [{"role": "system", "content": mock_system}] + messages
             response = await self._client.chat.completions.create(
@@ -356,7 +364,7 @@ async def run_seed_prompts(
     mock: bool = True,
     max_prompts: int = 0,
     max_turns: int = 5,
-    qwen_url: str = "http://localhost:8000",
+    qwen_url: str = "http://localhost:8000/v1",
 ) -> list[Trajectory]:
     """Run simulation on a batch of seed prompts.
 

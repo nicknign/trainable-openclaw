@@ -288,4 +288,51 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
   - `e65c713` fix: GRPO align with veRL native (reward placement, prompt template, e2e GSM8K)
   - `65602e6` docs: update roadmap — Phase 1 milestone complete
   - `d312f20` chore: remove dead stub directories
-- 未提交: B0日志系统 + B1.2数据准备 + 文档更新
+  - `3addddd` feat: conversation log system (B0) + OASST2 data preparation (B1.2)
+  - `9325cdd` feat: Phase 1.5 S1+S2 — seed extraction + User Sim Agent correction dialogue engine
+- 未提交: Phase 1.5 S2 脚本完善 + 训练/测试数据集生成
+
+---
+
+## 2026/05/30
+
+### Phase 1.5 S2: GPU 服务器 + 仿真流水线搭建
+
+- **GPU 服务器配置**: RTX 4080 SUPER (32GB), `connect.westc.seetacloud.com:27814`
+- **serve_ppo 启动**: Qwen3-4B + LoRA rank=16, HYBRID 模式
+  - `max_model_len=4096` 适配 32GB 显存
+  - `gpu_memory_utilization=0.4` 给 FSDP 训练 worker 留空间
+  - `trainer.logger='[console]'` 避免 WandB API key 错误
+  - `idle_timeout=999999` 禁用自动训练触发（纯推理模式）
+- **API 路径修复**: base_url 从 `http://localhost:8000` 改为 `http://localhost:8000/v1`（serve_ppo 实际服务路径）
+- **`.env` 文件**: DeepSeek API 密钥通过 `.env` 注入，已加入 `.gitignore`
+
+### Phase 1.5 S2: 用户模拟纠错对话流水线
+
+- **`scripts/run_simulation.py`** — 自包含仿真脚本 (~800 行)，无需导入项目包
+  - **5 种用户画像**: 张工(代码)、李编辑(写作)、王同学(数学)、Alex(工程)、陈测试(QA)
+  - **32 个 LMSYS 类别全覆盖**: 均衡分配到 5 种画像（之前 53% 落在默认画像，已修复）
+  - **多轮纠错对话**: User Sim (DeepSeek-v4-flash) 审查 Qwen3-4B 回答 → 发现错误 → 给出具体纠错 → Qwen 修正 → 循环直到通过或超限
+  - **Messages 格式记录**: `[{role, content, reasoning}]`，`<think>` 内容提取到 `reasoning` 字段
+  - **全中文化**: 字段名、判定值、界面文字统一中文
+  - **串行处理**: 逐条执行，终端实时打印每轮对话详情
+  - **进度条**: tqdm 显示实时通过率
+  - **模式**: `--mock`（DeepSeek 模拟双方）/ `--no-mock`（真实 GPU）/ `--dry-run` / `--stats-only`
+- **画像分布修复**: `PERSONA_CATEGORY_MAP` 覆盖全部 32 个 LMSYS 类别
+  - 之前: qa_tester 53% → 现在: 李编辑 28% / 王同学 25% / 陈测试 19% / Alex 16% / 张工 12%
+- **库文件同步**: `user_sim.py` 和 `engine.py` 同步更新画像映射
+
+### 训练/测试数据集制作
+
+- **种子打乱拆分**: 3200 条种子 → `seed_train_100.jsonl` (100) + `seed_test_50.jsonl` (50)，5 种画像均有覆盖
+- **训练集生成**: 远程 GPU 服务器后台运行中（预计 ~2 小时完成 100 通）
+- **测试集生成**: 训练集完成后接着跑 50 通
+- **数据用途**: 
+  - 训练数据: `(错误回答, 纠错意见, 修正后回答)` 三元组 → 用于后续 B1/B2 流程
+  - 测试数据: 验证自进化引擎训练提升效果
+  - Rubric 种子: 纠错维度聚合 → B2 Rubric 生成器输入
+
+### 远程环境更新
+
+- 主机名修正: `connect.westc.seetacloud.com`（非 westd）
+- 端口 27814（GPU 机器），serve_ppo 常驻运行
