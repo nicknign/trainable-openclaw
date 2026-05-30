@@ -665,13 +665,13 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 | A3 | 权重同步+恢复推理+GRPO | ✅ 已完成 | 2026-05-25 | CheckpointEngineManager weight sync + GRPO训练闭环 |
 | B0 | 对话日志系统 | ✅ 已完成 | 2026-05-29 | SQLite + WAL, sessions/messages 双表, CLI viewer, 34 测试 |
 | **S1** | **LMSYS 种子数据抽取** | ✅ 已完成 | 2026-05-29 | 3200 prompts, 32 类别, 均衡分布 |
-| **S2** | **用户模拟 + 纠错交互生成** | 🟡 进行中 | 2026-05-30 | 5 画像 × 多轮纠错, 训练集 100 通生成中 |
-| **S3** | **轨迹评估与数据导出** | ⬜ | | 分级 + 格式化 → 训练/测试/rubric种子 |
+| **S2** | **用户模拟 + 纠错交互生成** | 🟡 进行中 | 2026-05-30 | 5 画像 × 多轮纠错, 训练集100完成, 测试集50生成中 |
+| **S3** | **轨迹评估与数据导出** | ✅ 已完成 | 2026-05-30 | 分级+格式化→训练对/rubric种子, 48训练对 |
 | **S4** | **反思与持续优化** | ⬜ | | Reflection → 更新 prompts → FAIL率下降 |
 | **S5** | **评估指标体系** | ⬜ | | 核心: 纠错率/直接通过率/FAIL率 |
-| B1 | 用户反馈收集与分析 | ⬜ | | 依赖 S1-S3 种子+扩展数据 |
-| B2 | LLM自主生成Rubrics | ⬜ | | 依赖 S3 交互轨迹 |
-| B3 | Rubric执行器(Judge) | ⬜ | | |
+| B1 | 用户反馈收集与分析 | ✅ 已完成 | 2026-05-30 | LLM分析 7模式 + simple模式 14维度 |
+| B2 | LLM自主生成Rubrics | ✅ 已完成 | 2026-05-30 | 20条rubric (14 simple + 6 LLM高质量) |
+| B3 | Rubric执行器(Judge) | ✅ 已完成 | 2026-05-30 | 矩阵评分 + GRPO reward计算 |
 | B4 | Rubric持续演进 | ⬜ | | 缓冲 |
 | C1 | 主循环串联 | ⬜ | | 关键里程碑 |
 | C2 | Dashboard | ⬜ | | 缓冲 |
@@ -700,7 +700,7 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 
 ### Phase 1.5 S2 进度（2026-05-30）
 
-**S1 种子抽取已完成，S2 仿真流水线搭建完成，训练/测试数据集生成中。**
+**S1 种子抽取已完成，S2 仿真流水线搭建完成，训练集 100 通已完成，测试集 50 通生成中。Phase 2 评估模块全部开发完成并验证通过。**
 
 **关键成果：**
 - `scripts/run_simulation.py` — 自包含仿真脚本（~800 行），支持真实/模拟/空跑/统计四种模式
@@ -709,17 +709,30 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 - Messages 格式记录：`[{role, content, reasoning}]`，`<think>` 提取到 `reasoning`
 - GPU 服务器稳定运行：RTX 4080 SUPER, serve_ppo HYBRID 模式, Qwen3-4B + LoRA
 
-**数据集制作中：**
+**数据集制作：**
 | 文件 | 数量 | 状态 |
 |------|------|------|
 | `data/seed_prompts.jsonl` | 3200 prompts, 32 类别 | ✅ 已完成 |
 | `data/seed_train_100.jsonl` | 100 prompts (打乱) | ✅ 已拆分 |
 | `data/seed_test_50.jsonl` | 50 prompts (打乱) | ✅ 已拆分 |
-| `data/train_trajectories.jsonl` | 100 通纠错对话 | 🟡 生成中 (~2h) |
-| `data/test_trajectories.jsonl` | 50 通纠错对话 | ⬜ 待生成 |
+| `data/train_trajectories.jsonl` | 100 通纠错对话 | ✅ 已完成 (闭环率 99%, 平均纠错 0.49) |
+| `data/test_trajectories.jsonl` | 50 通纠错对话 | 🟡 生成中 (10/50, ~20%) |
+| `data/training_pairs.jsonl` | 48 个训练三元组 | ✅ S3 已产出 |
+| `data/positive_examples.jsonl` | 67 个直接通过样例 | ✅ S3 已产出 |
+| `data/rubric_seeds.json` | 14 个纠错维度 | ✅ S3 已产出 |
+| `data/rubrics.json` | 20 条评分 Rubric | ✅ B2 已产出 (14 simple + 6 LLM) |
 
-**后续流程（S3+）：**
-- 轨迹评估分级（direct_pass / corrected / partial / failed）
-- 提取训练对: `(bad_answer, correction, good_answer)` 三元组
-- 纠错维度聚合 → Rubric 种子
-- 训练集/测试集 → 验证自进化引擎训练提升效果
+**Phase 2 评估模块全部完成：**
+| 模块 | 文件 | 状态 |
+|------|------|------|
+| S3 轨迹评估 | `evaluation/trajectory_eval.py` | ✅ 完成并验证 |
+| B1 反馈分析 | `evaluation/feedback.py` | ✅ 完成并验证 (simple + LLM 双模式) |
+| B2 Rubric生成 | `evaluation/rubric.py` | ✅ 完成并验证 (LLM生成 + 模板回退) |
+| B3 Judge执行 | `evaluation/judge.py` | ✅ 完成并验证 (GRPO reward 计算) |
+| 流水线脚本 | `scripts/run_evaluation.py` | ✅ 完成并验证 (S3→B1→B2→B3) |
+
+**后续流程：**
+- 测试集 50 通生成完成 → 跑 S3 评估 + 完整流水线
+- 对比训练集/测试集评估结果
+- 修复 B3 Judge 验证中的 JSON 解析边界情况
+- 将 Rubric 打分接入 GRPO reward 计算

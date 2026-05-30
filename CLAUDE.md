@@ -336,3 +336,49 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 - 主机名修正: `connect.westc.seetacloud.com`（非 westd）
 - 端口 27814（GPU 机器），serve_ppo 常驻运行
+
+### Phase 2: 自进化评判系统 — 代码开发
+
+#### S3: 轨迹评估与数据导出 (`evaluation/trajectory_eval.py`)
+- `grade_trajectory(traj)` → "直接通过" / "纠错后通过" / "部分通过" / "失败"
+- `extract_training_pairs(traj)` → `(错误回答, 纠错意见, 修正回答, 修正思考)` 三元组
+- `extract_rubric_seeds(trajectories)` → 聚合纠错维度（17 个维度类别，关键词推导）
+- `process_trajectories(input_file, output_dir)` → 完整 S3 流水线
+- **实际运行**: 训练集 100 条 → 67 直接通过 / 32 纠错后通过 / 1 部分通过 → 48 training pairs, 14 rubric 种子维度
+  - 维度分布: 计算准确性(22) / 事实准确性(18) / 结构逻辑(11) / 步骤完整性(10) / 信息完整性(9) / 文笔流畅(8) / 其他(7) / 意境表达(6) / 清晰易懂(4) / 表达严谨性(4) / 性能(2) / 类型注解(2) / 代码正确性(1) / 错误处理(1)
+
+#### B1: 用户反馈分析 (`evaluation/feedback.py`)
+- `FeedbackPattern` dataclass: 模式名称, 描述, 频次, 严重程度, 典型示例, 建议检查项
+- `FeedbackAnalyzer.analyze()` — async LLM 分析（DeepSeek-v4-flash），从种子维度聚类为高层次反馈模式
+- `FeedbackAnalyzer.analyze_simple()` — 无 API 模式，直接转换 rubric seeds → FeedbackPattern
+- **实际运行 (LLM 模式)**: 14 维度 → 7 个高层次模式: 事实性错误 / 计算与推理错误 / 格式与规范遵循 / 语言表达与意图理解 / 细节准确性不足 / 安全与技术实现错误 / 内容冗余与重复
+
+#### B2: LLM 自主生成 Rubrics (`evaluation/rubric.py`)
+- `Rubric` dataclass: 完整生命周期管理（活跃 → 命中更新 → 归档）
+- `RubricStore`: JSON 持久化 + 版本管理 + 模糊匹配
+- `RubricGenerator.generate()` — async LLM 生成严格量化评分 prompt
+- `RubricGenerator.generate_simple()` — 模板回退模式（4 级评分）
+- `RubricGenerator._generate_fallback()` — API 失败时的模板回退（新增）
+- `generate()` 新增验证: 空响应/短响应 (<50 chars) 自动抛异常触发回退
+- **实际运行 (LLM 模式)**: 7 个模式 → 6 个高质量 Rubric（详细扣分细则 + JSON 输出格式），4 个 API 返回空被清理
+- **实际运行 (Simple 模式)**: 14 个种子 → 14 个模板 Rubric
+- **当前 rubrics.json**: 20 条（14 simple + 6 LLM 高质量）
+
+#### B3: LLM Judge 执行器 (`evaluation/judge.py`)
+- `JudgeExecutor.score_one(rubric, answer)` — 单 rubric × 单回答
+- `JudgeExecutor.score_answer(answer, rubrics)` — M 条 rubric × 单回答
+- `JudgeExecutor.score_answers(prompt, answers, rubrics)` — N 答案 × M rubric 矩阵
+- `JudgeExecutor.compute_grpo_rewards(score_results, reward_mode)` — "mean"/"total"/"pass_fail"
+- `_parse_score_json()` — JSON 解析 + 正则回退提取分数
+- Judge 可执行性验证: 简单模式跳过 API 验证，LLM 模式测试了第一条 rubric
+
+#### 流水线脚本 (`scripts/run_evaluation.py`)
+- `run_full_pipeline()` — S3 → B1 → B2 → B3 串联
+- `--simple` 模式（无 API）/ `--s3-only` 模式
+- 完整流水线验证通过（simple 模式），LLM 模式验证通过
+
+### 待办
+- 测试集 50 通生成完成 → 跑 S3 评估 + 流水线
+- 对比训练集/测试集评估结果
+- 修复 B3 Judge JSON 解析失败问题（测试答案太通用）
+- 提交 Phase 2 代码

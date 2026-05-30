@@ -232,6 +232,9 @@ class RubricGenerator:
 
         prompt_text = response.choices[0].message.content.strip()
 
+        if not prompt_text or len(prompt_text) < 50:
+            raise ValueError(f"LLM 返回内容过短或为空 ({len(prompt_text)} chars): {prompt_text[:100]}")
+
         # 生成唯一 ID
         rubric_id = hashlib.md5(
             f"{pattern.模式名称}:{prompt_text[:100]}".encode()
@@ -252,15 +255,52 @@ class RubricGenerator:
         self,
         patterns: list,
     ) -> list[Rubric]:
-        """为所有反馈模式生成 Rubric。"""
+        """为所有反馈模式生成 Rubric。API 失败时回退到简单模板。"""
         rubrics = []
         for p in patterns:
             try:
                 r = await self.generate(p)
                 rubrics.append(r)
             except Exception as e:
-                logger.error(f"生成 Rubric 失败 [{p.模式名称}]: {e}")
+                logger.warning(f"LLM 生成 Rubric 失败 [{p.模式名称}]: {e}，回退到简单模板")
+                r = self._generate_fallback(p)
+                rubrics.append(r)
         return rubrics
+
+    def _generate_fallback(self, pattern) -> Rubric:
+        """API 失败时的简单模板回退。"""
+        existing = self.store.match(pattern.模式名称)
+        if existing:
+            return existing
+
+        prompt = f"""你是一个质量检查员。请检查以下内容在「{pattern.模式名称}」方面的质量。
+
+评分标准（满分 10 分）：
+- 完全满足该维度要求: +5 分
+- 存在轻微不足: +3 分（扣 2 分）
+- 存在明显缺陷: +1 分（扣 4 分）
+- 完全不符合要求: 0 分
+
+{pattern.描述}
+
+{pattern.建议检查项}
+
+输出格式（严格 JSON）：
+{{"分数": <0-10的数值>, "扣分项": ["具体扣分原因"], "总结": "一句话评价"}}
+
+待检查内容：
+{{content}}"""
+
+        rubric_id = hashlib.md5(pattern.模式名称.encode()).hexdigest()[:12]
+        rubric = Rubric(
+            id=rubric_id,
+            名称=pattern.模式名称,
+            评分提示词=prompt,
+            来源模式=pattern.模式名称,
+        )
+        self.store.add(rubric)
+        logger.info(f"回退模板生成 Rubric: {rubric.名称}")
+        return rubric
 
     def generate_simple(
         self,
