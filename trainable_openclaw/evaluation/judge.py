@@ -95,12 +95,16 @@ class JudgeExecutor:
         api_key: str = "",
         base_url: str = "https://api.deepseek.com",
         model: str = "deepseek-v4-flash",
+        enable_thinking: bool = True,
+        max_concurrent_rubrics: int = 16,
     ):
         self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
         self.base_url = base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
         self.model = model
+        self.enable_thinking = enable_thinking
         self._client = None
         self._semaphore: asyncio.Semaphore | None = None
+        self._rubric_sem = asyncio.Semaphore(max_concurrent_rubrics)
 
     def _get_client(self):
         if self._client is None:
@@ -128,24 +132,17 @@ class JudgeExecutor:
             judge_prompt += f"\n\n待检查内容：\n{answer}"
 
         client = self._get_client()
-        sem = self._semaphore
-        if sem:
-            async with sem:
-                response = await client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "user", "content": judge_prompt},
-                    ],
-                    temperature=0.0,  # 评分用 0 温度确保一致性
-                    max_tokens=1000,
-                )
-        else:
-            response = await client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": judge_prompt}],
-                temperature=0.0,
-                max_tokens=1000,
-            )
+        kwargs: dict = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": judge_prompt}],
+            "temperature": 0.0,
+            "max_tokens": 2000,
+        }
+        if self.enable_thinking:
+            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+
+        async with self._rubric_sem:
+            response = await client.chat.completions.create(**kwargs)
 
         raw = response.choices[0].message.content.strip()
         return RubricScore.from_llm_output(rubric.id, rubric.名称, raw)
@@ -168,29 +165,29 @@ class JudgeExecutor:
             ordered = list(ordered)
             random.shuffle(ordered)
 
-        # 逐条评分（避免裁判模型并发过载）
-        scores = []
-        for rubric in ordered:
+        # 并发评分所有 rubric（受 _rubric_sem 控制并发上限）
+        async def _score_with_fallback(rubric):
             try:
-                rs = await self.score_one(rubric, answer)
-                scores.append(rs)
+                return await self.score_one(rubric, answer)
             except Exception as e:
                 logger.error(f"Rubric [{rubric.名称}] 评分失败: {e}")
-                scores.append(RubricScore(
+                return RubricScore(
                     rubric_id=rubric.id,
                     rubric_name=rubric.名称,
                     分数=0,
                     解析错误=str(e),
-                ))
+                )
 
-        return AnswerScores(answer=answer, rubric_scores=scores)
+        tasks = [_score_with_fallback(r) for r in ordered]
+        scores = await asyncio.gather(*tasks)
+
+        return AnswerScores(answer=answer, rubric_scores=list(scores))
 
     async def score_answers(
         self,
         prompt: str,
         answers: list[str],
         rubrics: list,
-        max_concurrent: int = 3,
         shuffle_answers: bool = True,
     ) -> list[dict]:
         """对多个候选回答（GRPO N 个采样）执行评分。
@@ -205,8 +202,6 @@ class JudgeExecutor:
         Returns:
             [{answer, scores: [{rubric_id, rubric_name, score, deductions, summary}], mean_score}]
         """
-        self._semaphore = asyncio.Semaphore(max_concurrent)
-
         # 可选打乱
         ordered_answers = list(answers)
         if shuffle_answers:
@@ -214,8 +209,6 @@ class JudgeExecutor:
 
         tasks = [self.score_answer(ans, rubrics) for ans in ordered_answers]
         results: list[AnswerScores] = await asyncio.gather(*tasks)
-
-        self._semaphore = None
 
         output = []
         for result in results:

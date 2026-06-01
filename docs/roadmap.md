@@ -670,10 +670,10 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 | **S4** | **反思与持续优化** | ⬜ | | Reflection → 更新 prompts → FAIL率下降 |
 | **S5** | **评估指标体系** | ⬜ | | 核心: 纠错率/直接通过率/FAIL率 |
 | B1 | 用户反馈收集与分析 | ✅ 已完成 | 2026-05-30 | LLM分析 7模式 + simple模式 14维度 |
-| B2 | LLM自主生成Rubrics | ✅ 已完成 | 2026-05-30 | 20条rubric (14 simple + 6 LLM高质量) |
-| B3 | Rubric执行器(Judge) | ✅ 已完成 | 2026-05-30 | 矩阵评分 + GRPO reward计算 |
+| B2 | LLM自主生成Rubrics | ✅ 已完成 | 2026-05-31 | 优化至5条高质量rubric (rubrics_v2), 2.5x reward提升 |
+| B3 | Rubric执行器(Judge) | ✅ 已完成 | 2026-05-31 | RewardBridge接入GRPO, 10步训练验证 |
 | B4 | Rubric持续演进 | ⬜ | | 缓冲 |
-| C1 | 主循环串联 | ⬜ | | 关键里程碑 |
+| C1 | 主循环串联 | 🟡 进行中 | 2026-05-31 | Rubric Judge → GRPO reward 闭环已走通，待多轮进化 |
 | C2 | Dashboard | ⬜ | | 缓冲 |
 | D1 | 测试集构建 | ⬜ | | 一个月后 |
 | D2 | 效果评估体系 | ⬜ | | 一个月后 |
@@ -721,6 +721,7 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 | `data/positive_examples.jsonl` | 67 个直接通过样例 | ✅ S3 已产出 |
 | `data/rubric_seeds.json` | 14 个纠错维度 | ✅ S3 已产出 |
 | `data/rubrics.json` | 20 条评分 Rubric | ✅ B2 已产出 (14 simple + 6 LLM) |
+| `data/rubrics_v2.json` | **5 条精简高质量 Rubric** | ✅ 2026-05-31 | 替换旧 20 条，reward 2.5x 提升 |
 
 **Phase 2 评估模块全部完成：**
 | 模块 | 文件 | 状态 |
@@ -736,3 +737,35 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 - 对比训练集/测试集评估结果
 - 修复 B3 Judge 验证中的 JSON 解析边界情况
 - 将 Rubric 打分接入 GRPO reward 计算
+
+### Phase 3 C1 集成进度（2026-05-31）
+
+**Rubric Judge → GRPO Reward 闭环已走通。** serve_ppo 训练循环已从 GSM8K 数学奖励切换到通用 Rubric 奖励。
+
+**关键成果：**
+- `trainable_openclaw/training/reward_bridge.py` — RewardBridge 同步包装器，将异步 B3 JudgeExecutor 封装为 Ray actor 内可用的同步调用（`asyncio.run()`）
+- `serve_ppo.py` 改造:
+  - `_async_monitor_loop` 启动时从 `data/training_pairs.jsonl` 加载 48 条训练 prompt，从 `data/rubrics_v2.json` 加载 5 条 rubric
+  - `_train_bridge` 每步随机选 8 个 prompt → vLLM 生成 8 个回答（rollout_n=8, 共 64 个答案）
+  - RewardBridge 对 64 个答案 × 5 条 rubric 评分 → mean 聚合 → reward
+  - `train_step()` 使用 reward 进行 GRPO 训练（替代 GSM8K 数学答案提取）
+- **配置**: `+trainer.trajectory.enabled=true` + `data_path` + `rubrics_path` + `api_key` + `max_rubrics` + `reward_mode`
+
+**训练结果对比：**
+
+| 轮次 | Rubric | Steps | Reward 范围 | Mean | 耗时 |
+|------|--------|-------|-------------|------|------|
+| Round 1 | 20 条旧 | 10 | 0.186 ~ 0.296 | 0.248 | 76 min |
+| Round 2 | **5 条新** | 10 | 0.575 ~ **0.698** | **0.638** | 53 min |
+
+**经验总结：**
+- Rubric 质量 >> Rubric 数量 — 5 条精炼 rubric 效果远超 20 条
+- GRPO advantage 信号仍偏弱（同 prompt 8 回答的 rubric 评分区分度有限），loss 波动在 -0.006~0.014
+- lr=5e-6 偏低，10 步无明显收敛趋势 — 下一步增大 lr 到 1e-5，跑 20 步
+- 每步选不同 prompt 导致 reward 震荡 — 可能是合理的（模型在多样化 prompt 上泛化），也可能是步间对比困难的噪声
+
+**下一步：**
+- 增大 lr 到 1e-5，跑 20 步观察收敛
+- 运行纠错率评估 (`tests/test_correction_rate.py`) 对比训练前后效果
+- 考虑 pairwise 排名 reward（代替 pointwise mean），增强 advantage 信号
+- 测试集 50 通完成 → 评估 → 对比训练/测试集

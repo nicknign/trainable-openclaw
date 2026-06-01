@@ -326,25 +326,88 @@ class ServeRunner(TaskRunner):
         _log(f"Generation done in {t_gen - t_start:.1f}s")
         logger.info("Generation done in %.1fs", t_gen - t_start)
 
-        # ---- 2. Compute rewards (GSM8K answer matching, native veRL) ----
-        from verl.utils.reward_score.gsm8k import compute_score as gsm8k_compute_score
+        # ---- 2. Compute rewards (Rubric-based via B3 Judge, or GSM8K fallback) ----
+        rubrics_path = training_data.get("rubrics_path", "")
+        api_key = training_data.get("api_key", "")
+        use_rubric = bool(rubrics_path and api_key)
 
         responses = []
         rewards = []
-        all_ground_truths = [gt for gt in ground_truths for _ in range(rollout_n)]
-        for i, (prompt_ids, response_text, gt) in enumerate(zip(all_prompt_ids, all_responses_text, all_ground_truths)):
-            response_ids = self._tokenizer.encode(response_text, add_special_tokens=False)
-            responses.append(response_ids)
-            if gt is not None:
-                reward = gsm8k_compute_score(response_text, str(gt))
+
+        if use_rubric:
+            from trainable_openclaw.training.reward_bridge import RewardBridge
+
+            bridge = RewardBridge(
+                rubrics_path=rubrics_path,
+                api_key=api_key,
+                base_url=training_data.get("base_url", ""),
+                model=training_data.get("judge_model", ""),
+                max_rubrics=training_data.get("max_rubrics", 0),
+                reward_mode=training_data.get("reward_mode", "mean"),
+            )
+
+            if not bridge.rubrics:
+                _log("WARNING: No active rubrics found — falling back to zero rewards")
+                for i, (prompt_ids, response_text) in enumerate(
+                    zip(all_prompt_ids, all_responses_text)
+                ):
+                    response_ids = self._tokenizer.encode(response_text, add_special_tokens=False)
+                    responses.append(response_ids)
+                    rewards.append(0.0)
             else:
-                reward = 0.0
-            rewards.append(reward)
+                # Group responses by prompt for per-prompt rubric scoring
+                # prompt_texts: decode from prompt_ids if not provided
+                prompt_texts = training_data.get("prompt_texts", None)
+                if prompt_texts is None:
+                    # Decode unique prompts (n_prompts, not total_samples)
+                    unique_prompt_ids = [prompts[i] for i in range(n_prompts)]
+                    prompt_texts = [
+                        self._tokenizer.decode(ids, skip_special_tokens=False)
+                        for ids in unique_prompt_ids
+                    ]
+
+                # Score each prompt's rollout_n responses
+                for p_idx in range(n_prompts):
+                    base = p_idx * rollout_n
+                    group_responses = all_responses_text[base : base + rollout_n]
+
+                    try:
+                        group_rewards = bridge.score_responses(
+                            prompt_texts[p_idx],
+                            group_responses,
+                        )
+                    except Exception as e:
+                        _log(f"Rubric scoring failed for prompt {p_idx}: {e} — zero rewards")
+                        group_rewards = [0.0] * rollout_n
+
+                    for j, (response_text, reward) in enumerate(
+                        zip(group_responses, group_rewards)
+                    ):
+                        response_ids = self._tokenizer.encode(response_text, add_special_tokens=False)
+                        responses.append(response_ids)
+                        rewards.append(reward)
+
+                    _log(
+                        f"Prompt {p_idx + 1}/{n_prompts}: rewards={[round(r, 3) for r in group_rewards]}"
+                    )
+        else:
+            # Legacy GSM8K reward path
+            from verl.utils.reward_score.gsm8k import compute_score as gsm8k_compute_score
+
+            all_ground_truths = [gt for gt in ground_truths for _ in range(rollout_n)]
+            for i, (prompt_ids, response_text, gt) in enumerate(zip(all_prompt_ids, all_responses_text, all_ground_truths)):
+                response_ids = self._tokenizer.encode(response_text, add_special_tokens=False)
+                responses.append(response_ids)
+                if gt is not None:
+                    reward = gsm8k_compute_score(response_text, str(gt))
+                else:
+                    reward = 0.0
+                rewards.append(reward)
 
         n_correct = sum(r > 0.5 for r in rewards)
         reward_mean = sum(rewards) / len(rewards) if rewards else 0.0
-        _log(f"Rewards: mean={reward_mean:.3f}, {n_correct}/{len(rewards)} correct")
-        logger.info("Rewards: mean=%.3f, %d/%d correct", reward_mean, n_correct, len(rewards))
+        _log(f"Rewards: mean={reward_mean:.3f}, {n_correct}/{len(rewards)} >0.5 (mode={'rubric' if use_rubric else 'gsm8k'})")
+        logger.info("Rewards: mean=%.3f, %d/%d >0.5", reward_mean, n_correct, len(rewards))
 
         # ---- 3. Sleep replicas (free GPU memory for training) ----
         _log("Sleeping replicas via CheckpointEngineManager...")
@@ -479,11 +542,31 @@ class ServeRunner(TaskRunner):
         step_metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=self._gpu_count))
         step_metrics["training/global_step"] = global_steps
 
+        def _s(key, default=0.0):
+            """Safely extract a scalar from step_metrics (lists get averaged)."""
+            v = step_metrics.get(key, default)
+            if isinstance(v, list):
+                return sum(v) / len(v) if v else default
+            return v
+
         try:
             self.tracker.log(data=step_metrics, step=global_steps)
         except Exception:
             logger.warning("tracker.log failed (non-fatal)", exc_info=True)
-        _log(f"train_step completed in {total_time:.1f}s — reward={reward_mean:.3f} ({n_correct}/{len(rewards)}), loss={actor_loss:.4f}")
+        _log(
+            f"train_step completed in {total_time:.1f}s — "
+            f"reward={reward_mean:.3f} ({n_correct}/{len(rewards)}), "
+            f"loss={actor_loss:.4f}, grad_norm={_s('actor/grad_norm'):.3f} | "
+            f"score={_s('critic/score/mean'):.3f}, "
+            f"rewards={_s('critic/rewards/mean'):.3f}, "
+            f"adv={_s('critic/advantages/mean'):.3f} | "
+            f"rlen={_s('response_length/mean'):.0f}, "
+            f"plen={_s('prompt_length/mean'):.0f}, "
+            f"abort={_s('response/aborted_ratio'):.3f} | "
+            f"tps={_s('perf/throughput'):.1f} tok/s/gpu, "
+            f"gen={_s('timing_per_token_ms/gen'):.2f}ms/tok, "
+            f"actor={_s('timing_per_token_ms/update_actor'):.2f}ms/tok"
+        )
         logger.info("train_step completed in %.1fs", total_time)
 
         return {
@@ -492,6 +575,7 @@ class ServeRunner(TaskRunner):
             "reward_total": len(rewards),
             "actor_loss": actor_loss,
             "step_time_seconds": total_time,
+            "step_metrics": step_metrics,
         }
 
     # ------------------------------------------------------------------
@@ -664,6 +748,61 @@ def _load_gsm8k_data(config, tokenizer) -> list[dict]:
     return data
 
 
+def _load_trajectory_data(config, tokenizer) -> list[dict]:
+    """Load training prompts from trajectory training pairs (Phase 3).
+
+    Reads data/training_pairs.jsonl and extracts unique seed prompts.
+    Returns a list of dicts with ``prompt_ids`` and ``prompt_text``.
+    """
+    import json as _json
+
+    traj_config = config.trainer.get("trajectory", {})
+    if not traj_config.get("enabled", False):
+        logger.info("Trajectory training data loading disabled (trainer.trajectory.enabled=false)")
+        return []
+
+    data_path = traj_config.get("data_path", "data/training_pairs.jsonl")
+    num_prompts = traj_config.get("num_prompts", 0)
+
+    try:
+        pairs = []
+        with open(data_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    pairs.append(_json.loads(line))
+    except FileNotFoundError:
+        logger.warning("Trajectory data not found: %s", data_path)
+        return []
+
+    # Extract unique seed prompts (preserve order)
+    seen = set()
+    unique_prompts = []
+    for p in pairs:
+        seed = p.get("种子提示词", "").strip()
+        if seed and seed not in seen:
+            seen.add(seed)
+            unique_prompts.append({
+                "prompt_text": seed,
+                "类别": p.get("类别", ""),
+            })
+
+    if num_prompts and num_prompts < len(unique_prompts):
+        unique_prompts = unique_prompts[:num_prompts]
+
+    data = []
+    for item in unique_prompts:
+        prompt_ids = tokenizer.encode(item["prompt_text"])
+        data.append({
+            "prompt_ids": prompt_ids,
+            "prompt_text": item["prompt_text"],
+            "类别": item.get("类别", ""),
+        })
+
+    logger.info("Loaded %d unique seed prompts from %d training pairs (path=%s)",
+                len(data), len(pairs), data_path)
+    return data
+
+
 def run_serve(config) -> None:
     """Initialize Ray, create ServeRunner actor, and start FastAPI on the driver."""
     from verl.utils.device import is_cuda_available
@@ -724,10 +863,48 @@ def run_serve(config) -> None:
     import asyncio
     import time as _time
 
-    # ---- A3: Pre-load GSM8K training data (for GRPO training validation) ----
+    # ---- A3: Pre-load training data into unified pool ----
     gsm8k_data = _load_gsm8k_data(config, tokenizer)
-    train_steps_per_cycle = config.trainer.get("train_steps_per_cycle", 5)
+    trajectory_data = _load_trajectory_data(config, tokenizer)
+
+    # ---- Hyperparameters ----
+    train_steps_per_cycle = config.trainer.get("train_steps_per_cycle", 10)
     prompts_per_step = config.trainer.get("prompts_per_step", 4)
+    max_train_rounds = config.trainer.get("max_train_rounds", 10)
+    idle_timeout = config.trainer.get("idle_timeout", 30.0)
+    min_samples = config.trainer.get("min_samples", 16)
+
+    # Unified training pool: each item tracks train_count
+    _training_pool: list[dict] = []
+    for item in (trajectory_data or []):
+        _training_pool.append({
+            "prompt_ids": item["prompt_ids"],
+            "prompt_text": item.get("prompt_text", ""),
+            "ground_truth": None,
+            "train_count": 0,
+            "source": "trajectory",
+        })
+    for item in (gsm8k_data or []):
+        _training_pool.append({
+            "prompt_ids": item["prompt_ids"],
+            "prompt_text": item.get("question", ""),
+            "ground_truth": item.get("ground_truth"),
+            "train_count": 0,
+            "source": "gsm8k",
+        })
+
+    logger.info("Training pool: %d total (%d trajectory + %d gsm8k), max_rounds=%d",
+                len(_training_pool),
+                len(trajectory_data or []),
+                len(gsm8k_data or []),
+                max_train_rounds)
+
+    # Rubric config for trajectory-based training
+    traj_config = config.trainer.get("trajectory", {})
+    rubrics_path = traj_config.get("rubrics_path", "data/rubrics.json")
+    api_key = traj_config.get("api_key", "") or os.environ.get("DEEPSEEK_API_KEY", "")
+    base_url = traj_config.get("base_url", "") or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    judge_model = traj_config.get("judge_model", "deepseek-v4-flash")
 
     # Orchestrator state (no threads)
     _orch_state = {
@@ -735,24 +912,38 @@ def run_serve(config) -> None:
         "last_request_time": _time.time(),
         "samples": [],
         "training_in_progress": False,
-        "idle_timeout": config.trainer.get("idle_timeout", 60.0),
-        "min_samples": config.trainer.get("min_samples", 16),
+        "idle_timeout": idle_timeout,
+        "min_samples": min_samples,
         "poll_interval": 1.0,
     }
     _app_state["orch_state"] = _orch_state
 
     async def _record_request_async(prompt_ids, response_ids, metadata=None):
-        """Non-blocking sample recording (called from API handlers on event loop)."""
-        s = _app_state["active_requests"]
+        """Non-blocking sample recording + add to training pool."""
         _orch_state["last_request_time"] = _time.time()
         _orch_state["samples"].append({
             "prompt_ids": prompt_ids,
             "response_ids": response_ids,
             "metadata": metadata or {},
         })
-        # Cap buffer
         if len(_orch_state["samples"]) > 10000:
             _orch_state["samples"] = _orch_state["samples"][-5000:]
+
+        # Add to unified training pool as new data
+        if metadata and metadata.get("prompt_text"):
+            prompt_text = metadata["prompt_text"]
+        else:
+            try:
+                prompt_text = tokenizer.decode(prompt_ids, skip_special_tokens=True)
+            except Exception:
+                prompt_text = ""
+        _training_pool.append({
+            "prompt_ids": list(prompt_ids),
+            "prompt_text": prompt_text,
+            "ground_truth": None,
+            "train_count": 0,
+            "source": "api",
+        })
 
     async def _async_monitor_loop():
         """Monitor idle state and trigger training — runs on uvicorn event loop."""
@@ -774,11 +965,12 @@ def run_serve(config) -> None:
                 continue
 
             # Check sample threshold
-            # GSM8K data can bypass min_samples only on first use;
-            # after that, require API samples to prevent infinite re-trigger
+            # Get fresh prompts: those not yet trained max_rounds times
+            fresh_prompts = [p for p in _training_pool if p["train_count"] < max_train_rounds]
+            active_count = len(fresh_prompts)
             n_samples = len(_orch_state["samples"])
-            has_gsm8k = gsm8k_data and not _orch_state.get("_gsm8k_exhausted", False)
-            if not has_gsm8k and n_samples < _orch_state["min_samples"]:
+
+            if active_count == 0 and n_samples < min_samples:
                 continue
 
             # ---- Trigger training ----
@@ -786,15 +978,26 @@ def run_serve(config) -> None:
             _orch_state["mode"] = "training"
             t_start = _time.time()
 
-            # Drain samples
+            # Drain API samples
             samples = list(_orch_state["samples"])
             _orch_state["samples"].clear()
 
-            logger.info("Training triggered — %d samples, idle=%.1fs, steps=%d",
-                        len(samples), elapsed, train_steps_per_cycle)
-            print(f"[TRAINING] Training triggered — {len(samples)} samples, idle={elapsed:.1f}s, "
-                  f"steps={train_steps_per_cycle}, per_step={prompts_per_step}",
+            # Active pool for this cycle: fresh prompts + API samples
+            active_pool = fresh_prompts if fresh_prompts else samples
+            active_source = fresh_prompts[0]["source"] if fresh_prompts else "api"
+
+            logger.info("Training triggered — pool=%d fresh, %d samples, idle=%.1fs, steps=%d, source=%s",
+                        active_count, len(samples), elapsed, train_steps_per_cycle, active_source)
+            print(f"[TRAINING] Training triggered — {active_count} fresh prompts, {len(samples)} samples, "
+                  f"idle={elapsed:.1f}s, steps={train_steps_per_cycle}, max_rounds={max_train_rounds}, "
+                  f"source={active_source}",
                   file=sys.stderr, flush=True)
+
+            if not active_pool:
+                logger.warning("No training data — skipping")
+                _orch_state["training_in_progress"] = False
+                _orch_state["mode"] = "serving"
+                continue
 
             all_step_metrics = []
             try:
@@ -809,27 +1012,27 @@ def run_serve(config) -> None:
                 for step in range(train_steps_per_cycle):
                     t_step = _time.time()
 
-                    # Round-robin prompt selection from pool
-                    if gsm8k_data:
-                        pool = gsm8k_data
-                    else:
-                        pool = samples
-                    if not pool:
-                        logger.warning("No training data — skipping remaining steps")
-                        break
+                    # Re-filter: only fresh prompts for this step
+                    step_candidates = [p for p in _training_pool if p["train_count"] < max_train_rounds]
+                    if not step_candidates:
+                        # Check if API samples arrived during training
+                        step_candidates = _orch_state["samples"]
+                        if not step_candidates:
+                            logger.warning("No fresh prompts + no API samples — skipping remaining steps")
+                            break
 
-                    start_idx = (step * prompts_per_step) % len(pool)
+                    start_idx = (step * prompts_per_step) % max(len(step_candidates), 1)
+                    step_items = []
                     step_prompts = []
                     step_ground_truths = []
+                    step_prompt_texts = []
                     for k in range(prompts_per_step):
-                        idx = (start_idx + k) % len(pool)
-                        item = pool[idx]
-                        if isinstance(item, dict):
-                            step_prompts.append(item.get("prompt_ids"))
-                            step_ground_truths.append(item.get("ground_truth"))
-                        else:
-                            step_prompts.append(item["prompt_ids"])
-                            step_ground_truths.append(item["metadata"].get("ground_truth"))
+                        idx = (start_idx + k) % max(len(step_candidates), 1)
+                        item = step_candidates[idx]
+                        step_items.append(item)
+                        step_prompts.append(item.get("prompt_ids") if isinstance(item, dict) else item["prompt_ids"])
+                        step_ground_truths.append(item.get("ground_truth") if isinstance(item, dict) else item.get("metadata", {}).get("ground_truth"))
+                        step_prompt_texts.append(item.get("prompt_text", "") if isinstance(item, dict) else item.get("metadata", {}).get("prompt_text", ""))
 
                     training_data = {
                         "prompts": step_prompts,
@@ -838,6 +1041,19 @@ def run_serve(config) -> None:
                         "sampling_params": sampling_params,
                     }
 
+                    # Determine rubric mode from pool items
+                    step_source = step_items[0].get("source", "api") if step_items and isinstance(step_items[0], dict) else "api"
+                    use_rubric = step_source in ("trajectory", "api") and rubrics_path and api_key
+
+                    if use_rubric:
+                        training_data["rubrics_path"] = rubrics_path
+                        training_data["api_key"] = api_key
+                        training_data["base_url"] = base_url
+                        training_data["judge_model"] = judge_model
+                        training_data["prompt_texts"] = step_prompt_texts
+                        training_data["max_rubrics"] = traj_config.get("max_rubrics", 0)
+                        training_data["reward_mode"] = traj_config.get("reward_mode", "mean")
+
                     # Use asyncio.to_thread to avoid blocking the uvicorn event loop
                     metrics = await asyncio.to_thread(
                         ray.get, runner.train_step.remote(training_data)
@@ -845,50 +1061,104 @@ def run_serve(config) -> None:
 
                     step_time = _time.time() - t_step
                     all_step_metrics.append(metrics)
+
+                    # Increment train_count for items in _training_pool
+                    trained_count = 0
+                    for item in step_items:
+                        if isinstance(item, dict) and "train_count" in item:
+                            item["train_count"] += 1
+                            trained_count += 1
+
+                    sm = metrics.get("step_metrics", {})
+                    def _ss(key, default=0.0):
+                        """Safely extract a scalar from step_metrics (lists get averaged)."""
+                        v = sm.get(key, default)
+                        if isinstance(v, list):
+                            return sum(v) / len(v) if v else default
+                        return v
+
                     logger.info(
-                        "Step %2d/%d done in %5.1fs — reward=%.3f (%d/%d), loss=%.4f",
+                        "Step %2d/%d done in %5.1fs — reward=%.3f (%d/%d) | "
+                        "actor/loss=%.4f grad_norm=%.3f lr=%.2e | "
+                        "resp_len=%.0f, score=%.3f rewards=%.3f adv=%.3f | "
+                        "tps=%.1f tok/s/gpu, gen=%.2fms/tok actor=%.2fms/tok | "
+                        "trained=%d",
                         step + 1, train_steps_per_cycle, step_time,
                         metrics.get("reward_mean", 0),
                         metrics.get("reward_correct", 0),
                         metrics.get("reward_total", 1),
-                        metrics.get("actor_loss", 0),
+                        _ss("actor/loss", metrics.get("actor_loss", 0)),
+                        _ss("actor/grad_norm"),
+                        _ss("actor/lr"),
+                        _ss("response_length/mean"),
+                        _ss("critic/score/mean"),
+                        _ss("critic/rewards/mean"),
+                        _ss("critic/advantages/mean"),
+                        _ss("perf/throughput"),
+                        _ss("timing_per_token_ms/gen"),
+                        _ss("timing_per_token_ms/update_actor"),
+                        trained_count,
                     )
                     print(f"[TRAIN STEP] {step + 1}/{train_steps_per_cycle} done in {step_time:.0f}s — "
                           f"reward={metrics.get('reward_mean', 0):.3f} "
-                          f"({metrics.get('reward_correct', 0)}/{metrics.get('reward_total', 1)}), "
-                          f"loss={metrics.get('actor_loss', 0):.4f}",
+                          f"({metrics.get('reward_correct', 0)}/{metrics.get('reward_total', 1)}) | "
+                          f"loss={_ss('actor/loss', metrics.get('actor_loss', 0)):.4f} "
+                          f"grad={_ss('actor/grad_norm'):.3f} "
+                          f"lr={_ss('actor/lr'):.2e} | "
+                          f"rlen={_ss('response_length/mean'):.0f} "
+                          f"rew={_ss('critic/rewards/mean'):.3f} "
+                          f"adv={_ss('critic/advantages/mean'):.3f} | "
+                          f"tps={_ss('perf/throughput'):.1f} "
+                          f"gen={_ss('timing_per_token_ms/gen'):.2f}ms/tok "
+                          f"actor={_ss('timing_per_token_ms/update_actor'):.2f}ms/tok | "
+                          f"trained={trained_count}",
                           file=sys.stderr, flush=True)
 
                 elapsed_train = _time.time() - t_start
-                # Summarize
                 reward_means = [m.get("reward_mean", 0) for m in all_step_metrics]
                 reward_corrects = [m.get("reward_correct", 0) for m in all_step_metrics]
                 reward_totals = [m.get("reward_total", 1) for m in all_step_metrics]
                 actor_losses = [m.get("actor_loss", 0) for m in all_step_metrics]
 
+                # Aggregate veRL-native step_metrics across steps
+                def _avg(key):
+                    vals = []
+                    for m in all_step_metrics:
+                        v = m.get("step_metrics", {}).get(key, 0)
+                        if isinstance(v, list):
+                            v = sum(v) / len(v) if v else 0
+                        vals.append(v)
+                    return sum(vals) / len(vals) if vals else 0
+
+                # Pool stats after cycle
+                fresh_after = sum(1 for p in _training_pool if p["train_count"] < max_train_rounds)
+                total_pool = len(_training_pool)
                 logger.info(
-                    "Training complete in %.1fs — %d steps, "
-                    "reward=%.3f→%.3f, correct=%d→%d, loss=%.4f→%.4f",
+                    "Training complete in %.1fs — %d steps, pool=%d/%d fresh | "
+                    "reward %.3f→%.3f | loss %.4f→%.4f | "
+                    "tps=%.1f tok/s/gpu, thrpt=%.0f tok, "
+                    "rlen=%.0f, score=%.3f, adv=%.3f",
                     elapsed_train, len(all_step_metrics),
-                    reward_means[0], reward_means[-1],
-                    reward_corrects[0], reward_corrects[-1],
-                    actor_losses[0], actor_losses[-1],
+                    fresh_after, total_pool,
+                    reward_means[0] if reward_means else 0,
+                    reward_means[-1] if reward_means else 0,
+                    actor_losses[0] if actor_losses else 0,
+                    actor_losses[-1] if actor_losses else 0,
+                    _avg("perf/throughput"),
+                    _avg("perf/total_num_tokens"),
+                    _avg("response_length/mean"),
+                    _avg("critic/score/mean"),
+                    _avg("critic/advantages/mean"),
                 )
                 print(
-                    f"[TRAINING] Training complete in {elapsed_train:.1f}s — "
-                    f"reward {reward_means[0]:.3f}→{reward_means[-1]:.3f}, "
-                    f"correct {reward_corrects[0]}→{reward_corrects[-1]}, "
-                    f"loss {actor_losses[0]:.4f}→{actor_losses[-1]:.4f}",
+                    f"[TRAINING] Complete in {elapsed_train:.1f}s — {len(all_step_metrics)} steps, "
+                    f"pool={fresh_after}/{total_pool} fresh (max_rounds={max_train_rounds}) | "
+                    f"reward {reward_means[0]:.3f}→{reward_means[-1]:.3f} | "
+                    f"loss {actor_losses[0]:.4f}→{actor_losses[-1]:.4f} | "
+                    f"tps={_avg('perf/throughput'):.1f} tok/s/gpu, rlen={_avg('response_length/mean'):.0f}, "
+                    f"score={_avg('critic/score/mean'):.3f}, adv={_avg('critic/advantages/mean'):.3f}",
                     file=sys.stderr, flush=True,
                 )
-
-                # Mark GSM8K exhausted after successful full cycle (no API samples)
-                # Failed cycles stay unmarked → can retry after next idle trigger
-                if gsm8k_data and len(samples) == 0:
-                    _orch_state["_gsm8k_exhausted"] = True
-                    logger.info("GSM8K data exhausted after successful cycle; future training requires API samples")
-                    print("[TRAINING] GSM8K data exhausted — future training requires API samples",
-                          file=sys.stderr, flush=True)
 
             except Exception:
                 logger.exception("Training failed — resuming serving with old weights")

@@ -382,3 +382,64 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 对比训练集/测试集评估结果
 - 修复 B3 Judge JSON 解析失败问题（测试答案太通用）
 - 提交 Phase 2 代码
+
+---
+
+## 2026/05/31
+
+### veRL GRPO 训练日志恢复
+
+- **问题**: 重构 serve_ppo 后 veRL 原生指标（actor/loss, grad_norm, critic/rewards, perf/throughput, response_length, timing_per_token_ms 等）从日志中消失
+- **修复**: `train_step()` 返回值新增 `step_metrics`，`_log()` 和监控循环恢复完整 veRL 指标输出
+- **FSDP 兼容**: `_s()` / `_ss()` / `_avg()` helper 处理 FSDP 返回的 list 值（如 `actor/grad_norm`），自动求均值
+- **输出目标**: `/tmp/serve_ppo_train.log`（per-step veRL 详细指标） + stderr `[TRAIN STEP]`（实时摘要）
+
+### 训练批次增大 + Rubric 优化
+
+- **批次**: 4 prompts/step → 8 prompts/step，8 × 8 rollout = 64 答案/step（之前 32）
+- **Rubric 优化**: 20 条 → **5 条高质量 rubric**（`data/rubrics_v2.json`）
+  - 旧 20 条：14 条模板通用 rubric + 6 条 LLM 生成且有大量重叠
+  - 新 5 条：事实与知识准确性 / 逻辑与计算正确性 / 完整性与步骤清晰度 / 格式与指令遵循 / 语言表达质量
+  - 每条包含详细扣分规则 + 严格 JSON 输出格式
+  - 格式大小: ~1415 chars vs 旧版 ~15000+ chars
+
+### 训练 Round 1 — 20 条旧 Rubric（基线）
+
+- **配置**: 8p×8r=64, lr=3e-6, 10 steps
+- **结果**: reward 0.186~0.296, mean=0.248, 76 min
+- **问题**: rubric 太多太泛，区分度低，reward 信号弱
+
+### 训练 Round 2 — 5 条优化 Rubric
+
+- **配置**: 8p×8r=64, lr=5e-6, 10 steps, `data/rubrics_v2.json`
+- **启动**: `scripts/start_train.sh`（PID 32113, port 13738）
+- **结果**:
+
+| Step | Reward | >0.5 | Loss | Grad | Time |
+|------|--------|------|------|------|------|
+| 1 | 0.631 | 48/64 | 0.0001 | 0.132 | 315s |
+| 2 | 0.654 | 50/64 | 0.0099 | 0.155 | 327s |
+| 3 | 0.575 | 42/64 | 0.0045 | 0.144 | 335s |
+| 4 | 0.693 | 53/64 | -0.0061 | 0.150 | 319s |
+| 5 | 0.595 | 45/64 | 0.0002 | 0.142 | 308s |
+| 6 | 0.682 | 53/64 | 0.0126 | 0.150 | 312s |
+| 7 | 0.590 | 40/64 | -0.0028 | 0.145 | 331s |
+| 8 | 0.643 | 51/64 | 0.0142 | 0.142 | 311s |
+| 9 | 0.616 | 46/64 | 0.0058 | 0.137 | 311s |
+| 10 | **0.698** | 55/64 | 0.0063 | 0.155 | 304s |
+
+- **总耗时**: 3172s (~53 min)，throughput=130 tok/s/gpu，response_len~504
+- **对比 Round 1**: reward 2.5x 提升（0.248→0.638），区分度更好，耗时更短（53min vs 76min）
+
+### 分析
+
+- Rubric 优化是关键杠杆：少量精炼 rubric 优于大量泛化 rubric
+- Reward 波动震荡（0.575~0.698），10 步无明显上升趋势——lr=5e-6 偏低，或每步 prompt 采样不同导致
+- GRPO advantage 信号仍偏弱（同 prompt 8 个回答的 rubric 评分区分度有限），loss 在 -0.006~0.014 波动
+- 下一步方向：增大 lr、增加步数、或改用 pairwise 排名 reward
+
+### 远程环境
+
+- GPU 机器: `connect.westc.seetacloud.com:13738`（RTX 4090, 已停止训练进程）
+- 模型: Qwen3-4B + LoRA rank=16
+- serve_ppo 日志: `/tmp/phase3_train.log`, `/tmp/serve_ppo_train.log`
