@@ -665,18 +665,18 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 | A3 | 权重同步+恢复推理+GRPO | ✅ 已完成 | 2026-05-25 | CheckpointEngineManager weight sync + GRPO训练闭环 |
 | B0 | 对话日志系统 | ✅ 已完成 | 2026-05-29 | SQLite + WAL, sessions/messages 双表, CLI viewer, 34 测试 |
 | **S1** | **LMSYS 种子数据抽取** | ✅ 已完成 | 2026-05-29 | 3200 prompts, 32 类别, 均衡分布 |
-| **S2** | **用户模拟 + 纠错交互生成** | 🟡 进行中 | 2026-05-30 | 5 画像 × 多轮纠错, 训练集100完成, 测试集50生成中 |
+| **S2** | **用户模拟 + 纠错交互生成** | ✅ 已完成 | 2026-06-02 | 500 seeds → 557训练对 + 80测试对, 11类别 |
 | **S3** | **轨迹评估与数据导出** | ✅ 已完成 | 2026-05-30 | 分级+格式化→训练对/rubric种子, 48训练对 |
 | **S4** | **反思与持续优化** | ⬜ | | Reflection → 更新 prompts → FAIL率下降 |
-| **S5** | **评估指标体系** | ⬜ | | 核心: 纠错率/直接通过率/FAIL率 |
+| **S5** | **评估指标体系** | 🟡 进行中 | 2026-06-02 | 训练前基线已建立 (baseline_eval.json) |
 | B1 | 用户反馈收集与分析 | ✅ 已完成 | 2026-05-30 | LLM分析 7模式 + simple模式 14维度 |
-| B2 | LLM自主生成Rubrics | ✅ 已完成 | 2026-05-31 | 优化至5条高质量rubric (rubrics_v2), 2.5x reward提升 |
-| B3 | Rubric执行器(Judge) | ✅ 已完成 | 2026-05-31 | RewardBridge接入GRPO, 10步训练验证 |
+| B2 | LLM自主生成Rubrics | ✅ 已完成 | 2026-05-31 | 优化至8条动态rubric (rubrics_dynamic, category-aware) |
+| B3 | Rubric执行器(Judge) | ✅ 已完成 | 2026-06-02 | Sync API + merged scoring, 5 bug修复, 正式训练运行中 |
 | B4 | Rubric持续演进 | ⬜ | | 缓冲 |
-| C1 | 主循环串联 | 🟡 进行中 | 2026-05-31 | Rubric Judge → GRPO reward 闭环已走通，待多轮进化 |
+| C1 | 主循环串联 | 🟡 进行中 | 2026-06-02 | 动态rubric + checkpoint + 496 prompts全闭环, 5轮训练中 |
 | C2 | Dashboard | ⬜ | | 缓冲 |
-| D1 | 测试集构建 | ⬜ | | 一个月后 |
-| D2 | 效果评估体系 | ⬜ | | 一个月后 |
+| D1 | 测试集构建 | ✅ 已完成 | 2026-06-02 | 80 test prompts, 11类别, train/test零重叠 |
+| D2 | 效果评估体系 | 🟡 进行中 | 2026-06-02 | baseline_eval.json + 训练后Δ纠错率待测 |
 | D3 | 持续改进闭环 | ⬜ | | 一个月后 |
 
 ### Phase 1 里程碑总结（2026-05-25）
@@ -716,12 +716,14 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 | `data/seed_train_100.jsonl` | 100 prompts (打乱) | ✅ 已拆分 |
 | `data/seed_test_50.jsonl` | 50 prompts (打乱) | ✅ 已拆分 |
 | `data/train_trajectories.jsonl` | 100 通纠错对话 | ✅ 已完成 (闭环率 99%, 平均纠错 0.49) |
-| `data/test_trajectories.jsonl` | 50 通纠错对话 | 🟡 生成中 (10/50, ~20%) |
+| `data/test_trajectories.jsonl` | 50 通纠错对话 | ✅ 已完成 |
 | `data/training_pairs.jsonl` | 48 个训练三元组 | ✅ S3 已产出 |
 | `data/positive_examples.jsonl` | 67 个直接通过样例 | ✅ S3 已产出 |
 | `data/rubric_seeds.json` | 14 个纠错维度 | ✅ S3 已产出 |
-| `data/rubrics.json` | 20 条评分 Rubric | ✅ B2 已产出 (14 simple + 6 LLM) |
-| `data/rubrics_v2.json` | **5 条精简高质量 Rubric** | ✅ 2026-05-31 | 替换旧 20 条，reward 2.5x 提升 |
+| `data/phase3_datasets/train_prompts.jsonl` | **557 pairs / 496 unique** | ✅ 2026-06-02 | 训练集 (去重叠后) |
+| `data/phase3_datasets/test_prompts.jsonl` | **80 pairs / 78 unique** | ✅ 2026-06-02 | 测试集 (与训练零重叠) |
+| `data/phase3_datasets/baseline_eval.json` | 训练前纠错率基线 | ✅ 2026-06-02 | per_category + per_prompt |
+| `data/rubrics_dynamic.json` | **8 条动态 category-aware Rubric** | ✅ 2026-06-02 | 按类别匹配，替换rubrics_v2 |
 
 **Phase 2 评估模块全部完成：**
 | 模块 | 文件 | 状态 |
@@ -764,8 +766,43 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 - lr=5e-6 偏低，10 步无明显收敛趋势 — 下一步增大 lr 到 1e-5，跑 20 步
 - 每步选不同 prompt 导致 reward 震荡 — 可能是合理的（模型在多样化 prompt 上泛化），也可能是步间对比困难的噪声
 
+### Phase 3 C1 进度更新（2026-06-02）
+
+**数据规模大幅扩展 + 5 个关键 Bug 修复 + Checkpoint 机制完成 + 正式训练启动。**
+
+**数据扩展：**
+- 500 条种子 → 570 训练对 + 80 测试对（11 类别均衡覆盖）
+- 去重叠后: 557 训练对 / 496 unique prompts，与测试集零重叠
+
+**动态 Rubric 系统：**
+- 8 条 category-aware rubric（`rubrics_dynamic.json`），训练时按 prompt 类别动态匹配
+- 替换了固定的 `rubrics_v2.json`（5 条通用 rubric）
+
+**5 个关键 Bug 修复：**
+
+| Bug | 根因 | 修复 |
+|-----|------|------|
+| Ray event loop 冲突 | `asyncio.run()` 在 Ray uvloop 内冲突 → reward=0 | judge.py 新增完整 sync API (openai.OpenAI + ThreadPoolExecutor) |
+| Merged JSON 截断 | 8 rubric 合并超过 max_tokens=800 | 动态缩放: `max(800, len(rubrics)*200)` |
+| 数据字段不匹配 | 文件用 `prompt`，代码期望 `种子提示词` | 双字段兼容 |
+| Rubric 字段不匹配 | `from_dict()` 收到未知字段 | 过滤已知 dataclass 字段 |
+| Train/Test 泄漏 | 13 prompts 重叠 | `fix_leak.py` 从训练集移除 → 零重叠 |
+
+**模型 Checkpoint 保存：**
+- `ServeRunner.save_checkpoint()` — 委托 veRL FSDPCheckpointManager 保存
+- 配置: 每 10 步保存，保留 3 个，目录 `/data/wangye/trainable-openclaw/checkpoints/`
+- 产物: LoRA adapter (~631KB) + HF config/tokenizer
+- 测试脚本 `scripts/test_checkpoint.sh` 验证通过
+
+**正式训练 (Round 3)：**
+- **配置**: 5 rounds × 10 steps, 48 prompts/step × 4 rollouts = 192 answers/step, lr=5e-6
+- **数据**: 496 unique prompts, 动态 8-category rubric, 与测试集零重叠
+- **Checkpoint**: 每 10 步保存，保留 3 个
+- **远程**: `connect.westc.seetacloud.com:13738`, PID 152756, RTX 4090
+- **日志**: `/tmp/phase3_train.log` (服务), `/tmp/serve_ppo_train.log` (训练详情)
+- **预估**: ~9 小时 (50 steps)
+
 **下一步：**
-- 增大 lr 到 1e-5，跑 20 步观察收敛
-- 运行纠错率评估 (`tests/test_correction_rate.py`) 对比训练前后效果
-- 考虑 pairwise 排名 reward（代替 pointwise mean），增强 advantage 信号
-- 测试集 50 通完成 → 评估 → 对比训练/测试集
+- 训练完成后运行纠错率评估 (`baseline_eval.json` vs 训练后) → 计算 Δ纠错率
+- 对比 Round 3 (动态 rubric, 496 prompts) vs Round 2 (固定 rubric, 48 prompts)
+- 日志驱动自动 rubric 更新 (B4)

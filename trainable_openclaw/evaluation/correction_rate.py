@@ -300,7 +300,10 @@ class CorrectionRateEvaluator:
 
         url = f"{self.model_server_url}/chat/completions"
         messages = [{"role": "user", "content": prompt}]
-        messages.extend(history)
+        # Convert history speaker→role for OpenAI chat API compatibility
+        for h in history:
+            role = "assistant" if h.get("speaker") == "assistant" else "user"
+            messages.append({"role": role, "content": h.get("content", "")})
 
         payload = {
             "model": "qwen3-4b",

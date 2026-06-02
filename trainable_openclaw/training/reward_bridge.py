@@ -16,7 +16,6 @@ Usage inside train_step::
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from dataclasses import dataclass
@@ -51,7 +50,9 @@ class RewardBridge:
         model: str = "",
         max_rubrics: int = 0,
         reward_mode: str = "mean",
-        enable_thinking: bool = True,
+        enable_thinking: bool = False,
+        rubric_weights: list[float] | None = None,
+        use_merged: bool = True,
     ):
         self.rubrics_path = Path(rubrics_path)
         self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
@@ -62,6 +63,8 @@ class RewardBridge:
         self.max_rubrics = max_rubrics
         self.reward_mode = reward_mode
         self.enable_thinking = enable_thinking
+        self.rubric_weights = rubric_weights
+        self.use_merged = use_merged
         self._rubrics: list | None = None
 
     # ------------------------------------------------------------------
@@ -123,6 +126,7 @@ class RewardBridge:
         """Score N responses against M rubrics, return N reward values.
 
         Synchronous entry point for train_step (Ray actor context).
+        Uses sync API calls to avoid asyncio event loop conflicts.
 
         Args:
             prompt: Original user prompt.
@@ -132,15 +136,6 @@ class RewardBridge:
         Returns:
             List of N reward floats, suitable for GRPO rm_scores placement.
         """
-        mode = reward_mode or self.reward_mode
-        return asyncio.run(self._score_async(prompt, responses, mode))
-
-    async def _score_async(
-        self,
-        prompt: str,
-        responses: list[str],
-        reward_mode: str,
-    ) -> list[float]:
         from trainable_openclaw.evaluation.judge import JudgeExecutor
 
         rubrics = self.rubrics
@@ -153,15 +148,17 @@ class RewardBridge:
             base_url=self.base_url,
             model=self.model,
             enable_thinking=self.enable_thinking,
+            use_merged=self.use_merged,
         )
 
-        results = await judge.score_answers(
+        mode = reward_mode or self.reward_mode
+        results = judge.score_answers_sync(
             prompt=prompt,
             answers=responses,
             rubrics=rubrics,
         )
 
-        rewards = judge.compute_grpo_rewards(results, reward_mode=reward_mode)
+        rewards = judge.compute_grpo_rewards(results, reward_mode=mode, weights=self.rubric_weights)
         return rewards
 
     # ------------------------------------------------------------------
@@ -175,15 +172,6 @@ class RewardBridge:
         reward_mode: str = "",
     ) -> list[RewardResult]:
         """Like score_responses but returns full scoring details."""
-        mode = reward_mode or self.reward_mode
-        return asyncio.run(self._score_detailed_async(prompt, responses, mode))
-
-    async def _score_detailed_async(
-        self,
-        prompt: str,
-        responses: list[str],
-        reward_mode: str,
-    ) -> list[RewardResult]:
         from trainable_openclaw.evaluation.judge import JudgeExecutor
 
         rubrics = self.rubrics
@@ -192,14 +180,16 @@ class RewardBridge:
             base_url=self.base_url,
             model=self.model,
             enable_thinking=self.enable_thinking,
+            use_merged=self.use_merged,
         )
 
-        results = await judge.score_answers(
+        mode = reward_mode or self.reward_mode
+        results = judge.score_answers_sync(
             prompt=prompt,
             answers=responses,
             rubrics=rubrics,
         )
-        rewards = judge.compute_grpo_rewards(results, reward_mode=reward_mode)
+        rewards = judge.compute_grpo_rewards(results, reward_mode=mode, weights=self.rubric_weights)
 
         out = []
         for i, (r, result) in enumerate(zip(rewards, results)):
@@ -233,4 +223,5 @@ def create_reward_bridge(
         model=cfg.get("model", ""),
         max_rubrics=cfg.get("max_rubrics", 0),
         reward_mode=cfg.get("reward_mode", "mean"),
+        rubric_weights=cfg.get("rubric_weights"),
     )

@@ -60,6 +60,23 @@ CREATE INDEX IF NOT EXISTS idx_messages_session
 
 CREATE INDEX IF NOT EXISTS idx_messages_content
     ON messages(content);
+
+CREATE TABLE IF NOT EXISTS telemetry_events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id    TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    trace_id      TEXT,
+    event_type    TEXT NOT NULL,
+    rating        INTEGER,
+    correction    TEXT,
+    created_at    REAL NOT NULL,
+    metadata      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_telemetry_session
+    ON telemetry_events(session_id);
+
+CREATE INDEX IF NOT EXISTS idx_telemetry_trace
+    ON telemetry_events(trace_id);
 """
 
 
@@ -283,6 +300,172 @@ class ConversationStore:
             "first_message_at": first,
             "last_message_at": last,
         }
+
+    # ------------------------------------------------------------------
+    # Telemetry events (Phase 3 — feedback signals)
+    # ------------------------------------------------------------------
+
+    def record_telemetry(
+        self,
+        session_id: str,
+        event_type: str,
+        *,
+        trace_id: str | None = None,
+        rating: int | None = None,
+        correction: str | None = None,
+        metadata: dict | None = None,
+    ) -> int:
+        """Record a telemetry event linked to a session.
+
+        Event types follow the Trajectory-inspired taxonomy:
+        - ``user.accepted`` — user accepted the response (rating >= 4)
+        - ``user.corrected`` — user provided a correction
+        - ``user.abandoned`` — user abandoned (low rating, no correction)
+
+        Returns the new event's integer id.
+        """
+        now = time.time()
+        meta_json = json.dumps(metadata, ensure_ascii=False) if metadata else None
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO telemetry_events "
+                "(session_id, trace_id, event_type, rating, correction, created_at, metadata) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (session_id, trace_id, event_type, rating, correction, now, meta_json),
+            )
+            self._conn.commit()
+        return cur.lastrowid
+
+    def get_telemetry(
+        self,
+        session_id: str | None = None,
+        event_type: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """Query telemetry events, optionally filtered."""
+        clauses = []
+        params: list[Any] = []
+        if session_id is not None:
+            clauses.append("session_id = ?")
+            params.append(session_id)
+        if event_type is not None:
+            clauses.append("event_type = ?")
+            params.append(event_type)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(limit)
+        rows = self._conn.execute(
+            f"SELECT * FROM telemetry_events {where} ORDER BY created_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_telemetry_stats(self) -> dict:
+        """Return aggregate telemetry statistics."""
+        total = self._conn.execute(
+            "SELECT COUNT(*) FROM telemetry_events"
+        ).fetchone()[0]
+        by_type = {}
+        for row in self._conn.execute(
+            "SELECT event_type, COUNT(*) as cnt FROM telemetry_events GROUP BY event_type"
+        ).fetchall():
+            by_type[row["event_type"]] = row["cnt"]
+        avg_rating = self._conn.execute(
+            "SELECT AVG(rating) FROM telemetry_events WHERE rating IS NOT NULL"
+        ).fetchone()[0]
+        return {
+            "total_events": total,
+            "by_type": by_type,
+            "avg_rating": round(avg_rating, 2) if avg_rating else None,
+        }
+
+    # ------------------------------------------------------------------
+    # Step export (Phase 3 — Trajectory-inspired self-contained samples)
+    # ------------------------------------------------------------------
+
+    def export_steps(
+        self,
+        session_id: str | None = None,
+        limit: int = 100,
+        with_feedback_only: bool = False,
+    ) -> list[dict]:
+        """Export self-contained training Steps from conversation history.
+
+        Each Step follows the Trajectory pattern:
+        - ``messages_so_far`` — context up to and including the user message
+        - ``agent_action`` — the assistant's response
+        - ``feedback`` — linked telemetry event (if any)
+        - ``is_training_sample`` — True when feedback signal exists
+
+        Args:
+            session_id: Filter to a single session, or None for all.
+            limit: Max steps to return.
+            with_feedback_only: Only return steps that have feedback.
+
+        Returns:
+            List of Step dicts suitable for training data export.
+        """
+        # Load sessions
+        if session_id:
+            sessions = [self.get_session(session_id)]
+            if sessions[0] is None:
+                return []
+        else:
+            sessions = self.list_sessions(limit=limit * 2)
+
+        steps: list[dict] = []
+        for sess in sessions:
+            sid = sess["id"]
+            messages = self.get_messages(sid)
+            telemetry = self.get_telemetry(session_id=sid)
+            # Index telemetry by approximate time for loose linking
+            t_events = {e["created_at"]: e for e in telemetry} if telemetry else {}
+
+            # Group messages into user→assistant pairs (Steps)
+            context: list[dict] = []
+            for i, msg in enumerate(messages):
+                if msg["role"] == "user":
+                    context.append({
+                        "role": msg["role"],
+                        "content": msg["content"],
+                    })
+                elif msg["role"] == "assistant" and context:
+                    # Find nearest telemetry event after this assistant response
+                    nearest_fb = None
+                    for t_ts in sorted(t_events.keys()):
+                        if t_ts >= msg["created_at"]:
+                            nearest_fb = dict(t_events[t_ts])
+                            break
+
+                    step = {
+                        "messages_so_far": list(context),
+                        "agent_action": {
+                            "role": msg["role"],
+                            "content": msg["content"],
+                            "token_count": msg["token_count"],
+                            "latency_ms": msg["latency_ms"],
+                        },
+                        "feedback": nearest_fb,
+                        "is_training_sample": nearest_fb is not None,
+                        "session_id": sid,
+                        "user_id": sess["user_id"],
+                        "model": sess["model"],
+                    }
+                    steps.append(step)
+                    context.append({
+                        "role": msg["role"],
+                        "content": msg["content"],
+                    })
+
+                    if len(steps) >= limit:
+                        break
+
+            if len(steps) >= limit:
+                break
+
+        if with_feedback_only:
+            steps = [s for s in steps if s["is_training_sample"]]
+
+        return steps[:limit]
 
     # ------------------------------------------------------------------
     # Raw connection access (for CLI viewer)

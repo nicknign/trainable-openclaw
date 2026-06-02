@@ -76,6 +76,7 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: list[ChatCompletionResponseChoice]
     usage: UsageInfo
+    session_id: Optional[str] = None  # Phase 3: link feedback via /v1/feedback
 
 
 class HealthResponse(BaseModel):
@@ -84,6 +85,30 @@ class HealthResponse(BaseModel):
     uptime_seconds: float
     active_requests: int
     gpu_count: int
+
+
+class FeedbackRequest(BaseModel):
+    """Telemetry feedback from end-user (Phase 3 — Trajectory-inspired).
+
+    ``session_id`` or ``trace_id`` is required to link the feedback
+    back to the original conversation.  Rating follows a 1-5 scale.
+
+    Event type is derived automatically:
+    - rating >= 4  → ``user.accepted``
+    - rating 2-3 + correction text → ``user.corrected``
+    - rating == 1  → ``user.abandoned``
+    """
+    session_id: Optional[str] = None
+    trace_id: Optional[str] = None
+    rating: int  # 1-5 scale
+    correction: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
+
+
+class FeedbackResponse(BaseModel):
+    status: str
+    event_id: int
+    event_type: str
 
 
 # ---------------------------------------------------------------------------
@@ -205,17 +230,21 @@ def create_app() -> FastAPI:
 
             # Log to conversation store (Phase 2 — B1 analysis)
             store = _app_state.get("conversation_store")
+            chat_session_id: Optional[str] = None
             if store is not None:
                 user_id = req.user or "anonymous"
-                session_id = store.create_session(user_id, model=req.model)
-                store.add_message(session_id, "user", prompt_text,
-                                  token_count=prompt_tokens)
-                store.add_message(session_id, "assistant", response_text,
+                chat_session_id = store.create_session(user_id, model=req.model)
+                trace_meta = {"trace_id": request_id}
+                store.add_message(chat_session_id, "user", prompt_text,
+                                  token_count=prompt_tokens,
+                                  metadata=trace_meta)
+                store.add_message(chat_session_id, "assistant", response_text,
                                   token_count=completion_tokens,
                                   latency_ms=latency_ms,
                                   temperature=sampling_params["temperature"],
                                   max_tokens=sampling_params["max_tokens"],
-                                  stop_reason=output.stop_reason)
+                                  stop_reason=output.stop_reason,
+                                  metadata=trace_meta)
 
             return ChatCompletionResponse(
                 id=request_id,
@@ -233,11 +262,63 @@ def create_app() -> FastAPI:
                     completion_tokens=completion_tokens,
                     total_tokens=prompt_tokens + completion_tokens,
                 ),
+                session_id=chat_session_id,
             )
         except Exception as e:
             logger.error(f"Generation failed: {e}")
             raise HTTPException(status_code=500, detail=str(e))
         finally:
             _app_state["active_requests"] = max(0, _app_state.get("active_requests", 1) - 1)
+
+    @app.post("/v1/feedback", response_model=FeedbackResponse)
+    async def submit_feedback(req: FeedbackRequest):
+        """Record user feedback on a previous chat completion.
+
+        Accepts either ``session_id`` or ``trace_id`` to link feedback
+        to the original conversation.  Rating is 1-5 scale.
+        """
+        store = _app_state.get("conversation_store")
+        if store is None:
+            raise HTTPException(status_code=503, detail="Conversation store not available")
+
+        # Resolve session_id from trace_id if needed
+        session_id = req.session_id
+        if not session_id and req.trace_id:
+            # Look up session by trace_id in message metadata
+            rows = store.conn.execute(
+                "SELECT session_id FROM messages WHERE metadata LIKE ? LIMIT 1",
+                (f"%{req.trace_id}%",),
+            ).fetchall()
+            if rows:
+                session_id = rows[0]["session_id"]
+
+        if not session_id:
+            raise HTTPException(
+                status_code=400,
+                detail="session_id or trace_id required to link feedback",
+            )
+
+        # Derive event type from rating + correction
+        if req.rating >= 4:
+            event_type = "user.accepted"
+        elif req.correction and req.correction.strip():
+            event_type = "user.corrected"
+        else:
+            event_type = "user.abandoned"
+
+        event_id = store.record_telemetry(
+            session_id=session_id,
+            event_type=event_type,
+            trace_id=req.trace_id,
+            rating=req.rating,
+            correction=req.correction,
+            metadata=req.metadata,
+        )
+
+        logger.info(
+            "Feedback recorded: session=%s event=%s rating=%s id=%d",
+            session_id, event_type, req.rating, event_id,
+        )
+        return FeedbackResponse(status="ok", event_id=event_id, event_type=event_type)
 
     return app

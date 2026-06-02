@@ -443,3 +443,130 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - GPU 机器: `connect.westc.seetacloud.com:13738`（RTX 4090, 已停止训练进程）
 - 模型: Qwen3-4B + LoRA rank=16
 - serve_ppo 日志: `/tmp/phase3_train.log`, `/tmp/serve_ppo_train.log`
+
+---
+
+## 2026/06/01
+
+### Judge API 费用优化
+
+**问题**: 每步训练 64 回答 × 5 rubric = 320 次 API 调用，thinking 模式白白消耗 tokens，10 步花了 30+ 元。
+
+**三项优化：**
+
+1. **合并多 rubric 为单次调用** (`use_merged=True`, 默认)
+   - `score_merged()`: 将所有 rubric 合并为一个 prompt，一次 API 返回所有分数
+   - API 调用量: 64×5=320 → 64×1=64（减少 5x）
+   - `_build_merged_prompt()`: 清理 {content} 占位符，统一放置待评估内容
+   - `_parse_merged_response()`: 解析 JSON 数组 → RubricScore 列表，含容错
+   - `score_answer()` 在 `use_merged=True` 时走合并路径，异常时回退零分
+
+2. **关闭 thinking 模式** (`enable_thinking=False`, 默认)
+   - 评分是结构化任务，不需要深度推理
+   - 节省 thinking tokens（之前约占总 token 1/3）
+
+3. **降低 max_tokens**
+   - `score_one`: 2000 → 500
+   - `score_merged`: 800（新方法）
+
+**改动文件：**
+- `trainable_openclaw/evaluation/judge.py`: 新增 `score_merged()`, `_build_merged_prompt()`, `_parse_merged_response()`；默认 `enable_thinking=False`, `use_merged=True`
+- `trainable_openclaw/training/reward_bridge.py`: 默认 `enable_thinking=False`, `use_merged=True`；传递 `use_merged` 给 JudgeExecutor
+
+**预估节省**: 总 token 消耗降至原来的 ~1/5，费用从 ~3 元/步 → ~0.6 元/步
+
+### 训练批次进一步增大
+
+- **问题**: 8 prompts/step 太少，只有 48 个 prompt 池，每步梯度信号不一致
+- **改动**: `scripts/start_train.sh`
+  - `prompts_per_step`: 8 → **48**（全量，每步覆盖全部 prompt 池）
+  - `ppo_mini_batch_size`: 4 → **16**（配合更大 batch）
+  - 48 prompts × 8 rollout = 384 答案/步（之前 64）
+- **tradeoff**: 每步生成+评分+训练时间更长，但梯度信号更稳定
+
+### 扩展仿真数据规模（计划中）
+
+- **现状**: 仅 48 个训练对（来自 100 条种子的试跑），种子池有 3200 条
+- **计划**: 跑 500 条种子 → 预计 ~200+ 训练对
+- **要求**: 所有外部模型调用用 `deepseek-v4-flash` + 关闭思考（仿真脚本 LLMClient 默认已满足）
+- **流程**: 启动 GPU → serve_ppo 纯推理 → `run_simulation.py --no-mock --max-prompts 500` → 重新提取训练对 → 用更大 prompt 池重新训练
+
+### 今日改动的文件汇总
+
+| 文件 | 改动 |
+|------|------|
+| `trainable_openclaw/evaluation/judge.py` | +merged scoring, enable_thinking=False, max_tokens 500/800 |
+| `trainable_openclaw/training/reward_bridge.py` | enable_thinking=False, use_merged=True |
+| `scripts/start_train.sh` | prompts_per_step=48, mini_batch=16, echo 更新 |
+
+### 远程服务器状态
+
+- GPU 机器已关机（端口 13738 不可达），需在 AutoDL 控制台启动
+- 启动后待做：上传改动文件 → 启动 serve_ppo → 跑仿真扩数据 → 重新训练验证
+
+---
+
+## 2026/06/02
+
+### 扩展仿真数据（500 条种子）
+
+- **运行**: 3200 条种子 → 采样 500 条 → User Sim 多轮纠错 → 570 训练对 + 80 测试对
+- **产物**: `data/phase3_datasets/`
+  - `train_prompts.jsonl`: 557 pairs / 496 unique prompts（训练，去重叠后）
+  - `test_prompts.jsonl`: 80 pairs / 78 unique prompts（测试，与训练无重叠）
+  - `all_prompts.jsonl`: 650 pairs（全部）
+  - `baseline_eval.json`: 训练前纠错率基线（含 per_category / per_prompt）
+- **11 个类别**: coding(117), brainstorming(113), copywriting(88), creative writing(70), explanation(30), debugging(28), debating(28), translation(28), instruction following(26), logical reasoning(24), math(18)
+
+### 动态 Rubric（8 条 category-aware）
+
+- **文件**: `data/rubrics_dynamic.json`（8 条，按类别适配不同检查维度）
+- **机制**: 训练时从 prompt 类别匹配对应 rubric（`max_rubrics=8`），非固定 rubric 集合
+- 替换了之前的 5 条固定 `rubrics_v2.json`，每类 prompt 得到针对性评分
+
+### 关键 Bug 修复
+
+1. **Ray actor event loop 冲突** — `asyncio.run()` 在 Ray actor 内部创建新 event loop，与已有 uvloop 冲突，导致所有 reward=0
+   - 修复: judge.py 新增完整 sync API（`score_merged_sync`, `score_answers_sync`），使用 `openai.OpenAI` + `ThreadPoolExecutor`
+   - reward_bridge.py 从 `asyncio.run()` 改为直接调用 sync 方法
+
+2. **Merged JSON 截断** — 8 条 rubric 合并 prompt 超过 `max_tokens=800`，JSON 被截断 → 解析失败 → reward=0
+   - 修复: `max_tokens` 动态缩放 → `max(800, len(rubrics) * 200)`
+
+3. **数据字段不匹配** — `_load_trajectory_data()` 期望 `种子提示词` 但文件用 `prompt`
+   - 修复: `p.get("种子提示词", "") or p.get("prompt", "")`
+
+4. **Rubric 字段不匹配** — `Rubric.from_dict()` 收到 `适用类别` 等未知字段
+   - 修复: 过滤已知 dataclass 字段
+
+5. **Train/Test 泄漏** — 13 个 prompt 同时出现在训练和测试集
+   - 修复: `tmp/fix_leak.py` 从训练集去除重叠 prompt → 557 pairs / 496 unique，train/test 零重叠
+
+### 模型 Checkpoint 保存
+
+- **`ServeRunner.save_checkpoint()`**: 新增方法，委托 veRL 的 `actor_rollout_wg.save_checkpoint()` → FSDPCheckpointManager 保存 per-rank sharded model/optimizer/extra state + HF config/tokenizer
+- **训练循环集成**: `_async_monitor_loop` 每步检查 `global_step % save_ckpt_interval == 0`，触发 `runner.save_checkpoint.remote()`
+- **配置**: `+trainer.save_ckpt_interval=10`, `+trainer.checkpoint_dir=/data/wangye/trainable-openclaw/checkpoints`, `max_ckpt_to_keep=3`
+- **产物**: `model_world_size_1_rank_0.pt` (LoRA adapter ~631KB) + `huggingface/` (config/tokenizer)
+- **测试脚本**: `scripts/test_checkpoint.sh` — 1 步训练 + 立即保存 + 验证文件
+
+### 正式训练启动
+
+- **配置**: 5 rounds × 10 steps, 48 prompts/step × 4 rollouts = 192 answers/step, lr=5e-6, LoRA rank=16
+- **数据**: 509→496 unique prompts（动态 rubric 已启用），与测试集零重叠
+- **Checkpoint**: 每 10 步保存到 `/data/wangye/trainable-openclaw/checkpoints/`，保留最近 3 个
+- **远程**: `connect.westc.seetacloud.com:13738`, PID 152756, RTX 4090
+- **日志**: `/tmp/phase3_train.log` (服务), `/tmp/serve_ppo_train.log` (训练详情)
+- **预估**: ~9 小时 (50 steps × ~11 min/step)
+
+### 今日改动文件
+
+| 文件 | 改动 |
+|------|------|
+| `verl-main-0516/verl/trainer/serve_ppo.py` | +save_checkpoint, +checkpoint config, checkpoint call in monitor loop |
+| `trainable_openclaw/evaluation/judge.py` | +sync API (score_merged_sync, score_answers_sync), dynamic max_tokens |
+| `trainable_openclaw/training/reward_bridge.py` | asyncio.run → sync path, removed async methods |
+| `trainable_openclaw/evaluation/rubric.py` | from_dict() filter unknown kwargs |
+| `scripts/start_train.sh` | +save_ckpt_interval, +checkpoint_dir, rollout_n 8→4, mini_batch 16→8, max_rounds 10→5 |
+| `scripts/test_checkpoint.sh` | 新建: checkpoint 验证脚本 |
+| `tmp/fix_leak.py` | 新建: train/test 重叠修复 |

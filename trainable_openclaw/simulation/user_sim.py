@@ -16,6 +16,102 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Robust JSON extraction
+# ---------------------------------------------------------------------------
+
+def _extract_json(raw: str) -> dict:
+    """Robust JSON extraction from LLM output.
+
+    Handles: markdown code fences, unescaped newlines in string values,
+    text before/after the JSON object.
+    """
+    text = raw.strip()
+
+    # Remove markdown code fences
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(lines[1:]) if len(lines) > 1 else text
+        if text.endswith("```"):
+            text = text[:-3]
+
+    # Try direct parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Try finding JSON object boundaries
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        candidate = text[start:end + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+        # Try with newline escaping in string values
+        try:
+            fixed = _fix_multiline_json(candidate)
+            return json.loads(fixed)
+        except json.JSONDecodeError:
+            pass
+
+    # Regex fallback: extract key fields
+    import re
+    verdict_match = re.search(r'"verdict"\s*:\s*"(pass|correct)"', text)
+    correction_match = re.search(r'"correction"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.DOTALL)
+    dimension_match = re.search(r'"dimension"\s*:\s*"([^"]*)"', text)
+    severity_match = re.search(r'"severity"\s*:\s*"([^"]*)"', text)
+    satisfied_match = re.search(r'"satisfied"\s*:\s*(true|false)', text)
+    summary_match = re.search(r'"summary"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.DOTALL)
+
+    result = {}
+    if verdict_match:
+        result["verdict"] = verdict_match.group(1)
+    if correction_match:
+        result["correction"] = correction_match.group(1).replace("\\n", "\n")
+    if dimension_match:
+        result["dimension"] = dimension_match.group(1)
+    if severity_match:
+        result["severity"] = severity_match.group(1)
+    if satisfied_match:
+        result["satisfied"] = satisfied_match.group(1) == "true"
+    if summary_match:
+        result["summary"] = summary_match.group(1).replace("\\n", "\n")
+
+    return result if result else {"verdict": "pass"}
+
+
+def _fix_multiline_json(text: str) -> str:
+    """Fix JSON with unescaped newlines inside string values.
+
+    Converts literal newlines within quoted string values to \\n.
+    """
+    import re
+    result = []
+    i = 0
+    in_string = False
+    string_start = 0
+
+    while i < len(text):
+        ch = text[i]
+        if ch == '"' and (i == 0 or text[i - 1] != '\\'):
+            in_string = not in_string
+            if in_string:
+                string_start = i
+            result.append(ch)
+        elif in_string and ch in '\n\r':
+            result.append('\\n')
+            if ch == '\r' and i + 1 < len(text) and text[i + 1] == '\n':
+                i += 1  # skip \n in \r\n
+        else:
+            result.append(ch)
+        i += 1
+
+    return ''.join(result)
+
 # ---------------------------------------------------------------------------
 # Persona definitions
 # ---------------------------------------------------------------------------
@@ -251,25 +347,7 @@ class UserSimAgent:
         )
 
         raw = response.choices[0].message.content.strip()
-
-        # Parse JSON from response (handle markdown code fences)
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            raw = "\n".join(lines[1:]) if len(lines) > 1 else raw
-            if raw.endswith("```"):
-                raw = raw[:-3]
-
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            logger.warning(f"Failed to parse User Sim JSON: {raw[:200]}")
-            # Fallback: treat as pass to avoid false corrections
-            return ReviewResult(
-                verdict="pass",
-                correction="",
-                dimension="parse_error",
-                severity="minor",
-            )
+        data = _extract_json(raw)
 
         return ReviewResult(
             verdict=data.get("verdict", "pass"),
@@ -311,18 +389,7 @@ class UserSimAgent:
         )
 
         raw = response.choices[0].message.content.strip()
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            raw = "\n".join(lines[1:]) if len(lines) > 1 else raw
-            if raw.endswith("```"):
-                raw = raw[:-3]
-
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            logger.warning(f"Failed to parse final check JSON: {raw[:200]}")
-            return False, "JSON parse error"
-
+        data = _extract_json(raw)
         return data.get("satisfied", False), data.get("summary", "")
 
 

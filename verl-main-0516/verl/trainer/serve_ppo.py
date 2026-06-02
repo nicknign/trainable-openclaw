@@ -215,6 +215,17 @@ class ServeRunner(TaskRunner):
     # A2: Sleep / Wake / Train — called by TrainingOrchestrator
     # ------------------------------------------------------------------
 
+    def save_checkpoint(self, local_path: str, global_step: int = 0, max_ckpt_to_keep: int = None):
+        """Save FSDP training checkpoint via actor_rollout_wg.
+
+        Delegates to veRL's FSDPCheckpointManager which saves per-rank sharded
+        model/optimizer/lr_scheduler/RNG state + HF config/tokenizer on rank 0.
+        """
+        import os as _os
+        _os.makedirs(local_path, exist_ok=True)
+        self.actor_rollout_wg.save_checkpoint(local_path, None, global_step, max_ckpt_to_keep)
+        logger.info("Checkpoint saved to %s (step %d)", local_path, global_step)
+
     def sleep_replicas(self):
         """Put all rollout replicas to sleep to free GPU memory for training."""
         self.checkpoint_manager.sleep_replicas()
@@ -344,6 +355,7 @@ class ServeRunner(TaskRunner):
                 model=training_data.get("judge_model", ""),
                 max_rubrics=training_data.get("max_rubrics", 0),
                 reward_mode=training_data.get("reward_mode", "mean"),
+                rubric_weights=training_data.get("rubric_weights"),
             )
 
             if not bridge.rubrics:
@@ -778,12 +790,12 @@ def _load_trajectory_data(config, tokenizer) -> list[dict]:
     seen = set()
     unique_prompts = []
     for p in pairs:
-        seed = p.get("种子提示词", "").strip()
+        seed = (p.get("种子提示词", "") or p.get("prompt", "")).strip()
         if seed and seed not in seen:
             seen.add(seed)
             unique_prompts.append({
                 "prompt_text": seed,
-                "类别": p.get("类别", ""),
+                "类别": p.get("类别", "") or p.get("category", ""),
             })
 
     if num_prompts and num_prompts < len(unique_prompts):
@@ -873,6 +885,8 @@ def run_serve(config) -> None:
     max_train_rounds = config.trainer.get("max_train_rounds", 10)
     idle_timeout = config.trainer.get("idle_timeout", 30.0)
     min_samples = config.trainer.get("min_samples", 16)
+    save_ckpt_interval = config.trainer.get("save_ckpt_interval", 10)
+    checkpoint_dir = config.trainer.get("checkpoint_dir", "checkpoints")
 
     # Unified training pool: each item tracks train_count
     _training_pool: list[dict] = []
@@ -1053,6 +1067,9 @@ def run_serve(config) -> None:
                         training_data["prompt_texts"] = step_prompt_texts
                         training_data["max_rubrics"] = traj_config.get("max_rubrics", 0)
                         training_data["reward_mode"] = traj_config.get("reward_mode", "mean")
+                        _rw = traj_config.get("rubric_weights")
+                        if _rw is not None:
+                            training_data["rubric_weights"] = _rw
 
                     # Use asyncio.to_thread to avoid blocking the uvicorn event loop
                     metrics = await asyncio.to_thread(
@@ -1113,6 +1130,19 @@ def run_serve(config) -> None:
                           f"actor={_ss('timing_per_token_ms/update_actor'):.2f}ms/tok | "
                           f"trained={trained_count}",
                           file=sys.stderr, flush=True)
+
+                    # ---- Save checkpoint every save_ckpt_interval steps ----
+                    global_step = sm.get("training/global_step", step + 1)
+                    if save_ckpt_interval > 0 and global_step % save_ckpt_interval == 0:
+                        ckpt_path = os.path.join(checkpoint_dir, f"global_step_{global_step}", "actor")
+                        print(f"[CHECKPOINT] Saving checkpoint to {ckpt_path} (step {global_step}) ...",
+                              file=sys.stderr, flush=True)
+                        try:
+                            ray.get(runner.save_checkpoint.remote(ckpt_path, global_step, max_ckpt_to_keep=3))
+                            print(f"[CHECKPOINT] Saved checkpoint to {ckpt_path}",
+                                  file=sys.stderr, flush=True)
+                        except Exception:
+                            logger.exception("Checkpoint save failed (non-fatal)")
 
                 elapsed_train = _time.time() - t_start
                 reward_means = [m.get("reward_mean", 0) for m in all_step_metrics]

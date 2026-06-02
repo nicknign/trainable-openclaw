@@ -270,6 +270,7 @@ class LLMClient:
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
+            extra_body={"thinking": {"type": "disabled"}},
         )
         return response.choices[0].message.content
 

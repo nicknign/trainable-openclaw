@@ -400,3 +400,170 @@ def test_close(store):
     store.close()
     # closing twice is safe with CPython but we just verify no crash
     store.close()
+
+
+# ---------------------------------------------------------------------------
+# Telemetry events (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+class TestTelemetry:
+    """Tests for record_telemetry / get_telemetry / get_telemetry_stats."""
+
+    def test_record_and_get_telemetry(self, store):
+        sid = store.create_session("alice")
+        eid = store.record_telemetry(sid, "user.accepted", rating=5, trace_id="t-123")
+        assert eid > 0
+
+        events = store.get_telemetry(session_id=sid)
+        assert len(events) == 1
+        assert events[0]["event_type"] == "user.accepted"
+        assert events[0]["rating"] == 5
+        assert events[0]["trace_id"] == "t-123"
+
+    def test_filter_by_event_type(self, store):
+        sid = store.create_session("alice")
+        store.record_telemetry(sid, "user.accepted", rating=5)
+        store.record_telemetry(sid, "user.corrected", rating=3, correction="请修正")
+        store.record_telemetry(sid, "user.abandoned", rating=1)
+
+        accepted = store.get_telemetry(session_id=sid, event_type="user.accepted")
+        assert len(accepted) == 1
+
+        corrected = store.get_telemetry(session_id=sid, event_type="user.corrected")
+        assert len(corrected) == 1
+        assert corrected[0]["correction"] == "请修正"
+
+    def test_telemetry_stats(self, store):
+        sid = store.create_session("alice")
+        store.record_telemetry(sid, "user.accepted", rating=5)
+        store.record_telemetry(sid, "user.accepted", rating=4)
+        store.record_telemetry(sid, "user.corrected", rating=3)
+
+        stats = store.get_telemetry_stats()
+        assert stats["total_events"] == 3
+        assert stats["by_type"]["user.accepted"] == 2
+        assert stats["by_type"]["user.corrected"] == 1
+        assert stats["avg_rating"] == 4.0
+
+    def test_correction_stored(self, store):
+        sid = store.create_session("alice")
+        store.record_telemetry(
+            sid, "user.corrected", rating=2,
+            correction="名字取错了，应该叫 get_name",
+        )
+        events = store.get_telemetry(session_id=sid)
+        assert events[0]["correction"] == "名字取错了，应该叫 get_name"
+
+    def test_cascade_on_session_delete(self, store):
+        sid = store.create_session("alice")
+        store.record_telemetry(sid, "user.accepted", rating=5)
+        store.delete_session(sid)
+        events = store.get_telemetry(session_id=sid)
+        assert len(events) == 0
+
+    def test_empty_telemetry(self, store):
+        assert store.get_telemetry() == []
+        stats = store.get_telemetry_stats()
+        assert stats["total_events"] == 0
+        assert stats["by_type"] == {}
+
+
+# ---------------------------------------------------------------------------
+# Step export (Phase 3 — Trajectory-inspired)
+# ---------------------------------------------------------------------------
+
+
+class TestExportSteps:
+    """Tests for export_steps — self-contained training sample extraction."""
+
+    def test_empty_store(self, store):
+        assert store.export_steps() == []
+
+    def test_single_turn_no_feedback(self, store):
+        sid = store.create_session("alice")
+        store.add_message(sid, "user", "什么是机器学习？")
+        store.add_message(sid, "assistant", "机器学习是AI的一个分支...")
+
+        steps = store.export_steps()
+        assert len(steps) == 1
+        s = steps[0]
+        assert len(s["messages_so_far"]) == 1
+        assert s["messages_so_far"][0]["content"] == "什么是机器学习？"
+        assert s["agent_action"]["content"] == "机器学习是AI的一个分支..."
+        assert s["is_training_sample"] is False
+        assert s["feedback"] is None
+
+    def test_multi_turn(self, store):
+        sid = store.create_session("alice")
+        store.add_message(sid, "user", "Q1")
+        store.add_message(sid, "assistant", "A1")
+        store.add_message(sid, "user", "Q2")
+        store.add_message(sid, "assistant", "A2")
+
+        steps = store.export_steps()
+        assert len(steps) == 2
+        # Step 1: context=[Q1], action=A1
+        assert len(steps[0]["messages_so_far"]) == 1
+        assert steps[0]["agent_action"]["content"] == "A1"
+        # Step 2: context=[Q1, A1, Q2], action=A2
+        assert len(steps[1]["messages_so_far"]) == 3
+        assert steps[1]["agent_action"]["content"] == "A2"
+
+    def test_with_feedback(self, store):
+        sid = store.create_session("alice")
+        store.add_message(sid, "user", "写一个排序")
+        store.add_message(sid, "assistant", "def sort(arr): return sorted(arr)")
+        store.record_telemetry(sid, "user.corrected", rating=3, correction="变量名不表意")
+
+        steps = store.export_steps()
+        assert len(steps) == 1
+        assert steps[0]["is_training_sample"] is True
+        assert steps[0]["feedback"]["event_type"] == "user.corrected"
+        assert steps[0]["feedback"]["correction"] == "变量名不表意"
+
+    def test_with_feedback_only_filter(self, store):
+        sid1 = store.create_session("alice")
+        store.add_message(sid1, "user", "Q1")
+        store.add_message(sid1, "assistant", "A1")
+        # No feedback on sid1
+
+        sid2 = store.create_session("bob")
+        store.add_message(sid2, "user", "Q2")
+        store.add_message(sid2, "assistant", "A2")
+        store.record_telemetry(sid2, "user.accepted", rating=5)
+
+        steps = store.export_steps(with_feedback_only=True)
+        assert len(steps) == 1
+        assert steps[0]["user_id"] == "bob"
+
+    def test_session_filter(self, store):
+        sid1 = store.create_session("alice")
+        store.add_message(sid1, "user", "Q1")
+        store.add_message(sid1, "assistant", "A1")
+
+        sid2 = store.create_session("bob")
+        store.add_message(sid2, "user", "Q2")
+        store.add_message(sid2, "assistant", "A2")
+
+        steps = store.export_steps(session_id=sid1)
+        assert len(steps) == 1
+        assert steps[0]["user_id"] == "alice"
+
+    def test_limit(self, store):
+        for i in range(5):
+            sid = store.create_session(f"user_{i}")
+            store.add_message(sid, "user", f"Q{i}")
+            store.add_message(sid, "assistant", f"A{i}")
+
+        steps = store.export_steps(limit=3)
+        assert len(steps) == 3
+
+    def test_metadata_preserved(self, store):
+        sid = store.create_session("alice")
+        store.add_message(sid, "user", "Q1")
+        store.add_message(sid, "assistant", "A1", token_count=42, latency_ms=500.0)
+
+        steps = store.export_steps()
+        assert steps[0]["agent_action"]["token_count"] == 42
+        assert steps[0]["agent_action"]["latency_ms"] == 500.0

@@ -11,10 +11,11 @@ sleep 2
 
 echo "=== Starting Phase 3 Training Server ==="
 echo "Model: Qwen3-4B + LoRA rank=16"
-echo "Training data: data/training_pairs.jsonl (48 prompts, 33 unique)"
-echo "Rubrics: data/rubrics_v2.json (5 high-quality rubrics)"
-echo "Reward: rubric-based via DeepSeek-v4-flash judge (thinking mode)"
-echo "Config: idle=30s, 10 steps/cycle, 8 prompts/step, rollout_n=8, lr=5e-6, max_rounds=10"
+echo "Training data: data/phase3_datasets/train_prompts.jsonl (557 pairs, 496 unique prompts)"
+echo "Rubrics: data/rubrics_dynamic.json (8 dynamic category-aware rubrics)"
+echo "Reward: rubric-based via DeepSeek-v4-flash judge (merged mode, no thinking)"
+echo "Config: idle=30s, 10 steps/cycle, 48 prompts/step (sampled from 570), rollout_n=4, lr=5e-6, max_rounds=5"
+echo "Checkpoint: every 10 steps, keep 3, dir=checkpoints"
 echo ""
 
 nohup /data/anaconda3/bin/python -m verl.trainer.serve_ppo \
@@ -27,14 +28,14 @@ nohup /data/anaconda3/bin/python -m verl.trainer.serve_ppo \
     actor_rollout_ref.rollout.load_format=auto \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-    actor_rollout_ref.rollout.n=8 \
+    actor_rollout_ref.rollout.n=4 \
     actor_rollout_ref.rollout.enforce_eager=true \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.max_model_len=4096 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
     ++actor_rollout_ref.rollout.enable_sleep_mode=false \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=4 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=8 \
     actor_rollout_ref.actor.optim.lr=5e-6 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.entropy_coeff=0 \
@@ -49,15 +50,17 @@ nohup /data/anaconda3/bin/python -m verl.trainer.serve_ppo \
     +trainer.serve_port=8000 \
     +trainer.idle_timeout=30 \
     +trainer.min_samples=0 \
-    +trainer.max_train_rounds=10 \
+    +trainer.max_train_rounds=5 \
     +trainer.train_steps_per_cycle=10 \
-    +trainer.prompts_per_step=8 \
+    +trainer.prompts_per_step=48 \
     +trainer.trajectory.enabled=true \
-    +trainer.trajectory.data_path=data/training_pairs.jsonl \
-    +trainer.trajectory.rubrics_path=data/rubrics_v2.json \
+    +trainer.trajectory.data_path=data/phase3_datasets/train_prompts.jsonl \
+    +trainer.trajectory.rubrics_path=data/rubrics_dynamic.json \
     +trainer.trajectory.api_key=sk-906ad0dc48354e7aba594ef6d9aa5be6 \
     +trainer.trajectory.max_rubrics=8 \
     +trainer.trajectory.reward_mode=mean \
+    +trainer.save_ckpt_interval=10 \
+    +trainer.checkpoint_dir=/data/wangye/trainable-openclaw/checkpoints \
     > /tmp/phase3_train.log 2>&1 &
 
 echo "Server PID: $!"

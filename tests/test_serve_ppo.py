@@ -199,3 +199,125 @@ class TestFastAPIEndpoints:
             json={"messages": [{"role": "user", "content": "Hi"}]},
         )
         assert response.status_code == 503
+
+
+class TestFeedbackModels:
+    """Verify Feedback request/response models."""
+
+    def test_feedback_request(self):
+        from trainable_openclaw.server.api import FeedbackRequest
+
+        req = FeedbackRequest(session_id="abc", rating=5, correction="请修改")
+        assert req.session_id == "abc"
+        assert req.rating == 5
+        assert req.correction == "请修改"
+
+    def test_feedback_request_with_trace_id(self):
+        from trainable_openclaw.server.api import FeedbackRequest
+
+        req = FeedbackRequest(trace_id="t-xyz", rating=3)
+        assert req.trace_id == "t-xyz"
+        assert req.session_id is None
+
+    def test_feedback_response(self):
+        from trainable_openclaw.server.api import FeedbackResponse
+
+        resp = FeedbackResponse(status="ok", event_id=42, event_type="user.accepted")
+        d = resp.model_dump()
+        assert d["status"] == "ok"
+        assert d["event_id"] == 42
+        assert d["event_type"] == "user.accepted"
+
+
+class TestFeedbackEndpoint:
+    """Integration tests for /v1/feedback endpoint."""
+
+    @pytest.fixture
+    def feedback_app(self, mock_tokenizer, mock_llm_client):
+        """Test app with a ConversationStore mock for feedback."""
+        from unittest.mock import MagicMock
+        from fastapi.testclient import TestClient
+
+        from trainable_openclaw.server.api import _app_state, create_app
+
+        app = create_app()
+        _app_state.clear()
+        mock_store = MagicMock()
+        mock_store.record_telemetry.return_value = 42
+        mock_store.conn.execute.return_value.fetchall.return_value = (
+            [{"session_id": "abc123"}]
+        )
+
+        _app_state["llm_client"] = mock_llm_client
+        _app_state["tokenizer"] = mock_tokenizer
+        _app_state["rollout_config"] = {
+            "temperature": 0.7, "top_p": 1.0, "top_k": -1, "response_length": 2048,
+        }
+        _app_state["gpu_count"] = 4
+        _app_state["active_requests"] = 0
+        _app_state["start_time"] = 1000.0
+        _app_state["conversation_store"] = mock_store
+
+        return TestClient(app), mock_store
+
+    def test_feedback_accepted(self, feedback_app):
+        client, mock_store = feedback_app
+        response = client.post(
+            "/v1/feedback",
+            json={"session_id": "abc123", "rating": 5},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["event_type"] == "user.accepted"
+
+    def test_feedback_corrected(self, feedback_app):
+        client, mock_store = feedback_app
+        response = client.post(
+            "/v1/feedback",
+            json={"session_id": "abc123", "rating": 2, "correction": "请用中文回答"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["event_type"] == "user.corrected"
+
+    def test_feedback_abandoned(self, feedback_app):
+        client, mock_store = feedback_app
+        response = client.post(
+            "/v1/feedback",
+            json={"session_id": "abc123", "rating": 1},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["event_type"] == "user.abandoned"
+
+    def test_feedback_missing_session_and_trace(self, feedback_app):
+        client, _ = feedback_app
+        response = client.post(
+            "/v1/feedback",
+            json={"rating": 3},
+        )
+        assert response.status_code == 400
+
+    def test_feedback_no_store(self, mock_tokenizer, mock_llm_client):
+        from fastapi.testclient import TestClient
+        from trainable_openclaw.server.api import _app_state, create_app
+
+        app = create_app()
+        _app_state.clear()
+        _app_state["llm_client"] = mock_llm_client
+        _app_state["tokenizer"] = mock_tokenizer
+        _app_state["rollout_config"] = {
+            "temperature": 0.7, "top_p": 1.0, "top_k": -1, "response_length": 2048,
+        }
+        _app_state["gpu_count"] = 4
+        _app_state["active_requests"] = 0
+        _app_state["start_time"] = 1000.0
+        # No conversation_store injected
+
+        client = TestClient(app)
+        response = client.post(
+            "/v1/feedback",
+            json={"session_id": "abc", "rating": 3},
+        )
+        assert response.status_code == 503

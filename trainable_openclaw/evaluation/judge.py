@@ -88,6 +88,11 @@ class JudgeExecutor:
     """LLM Judge 执行器。
 
     对候选回答执行 Rubric 评分，支持异步并发。
+
+    优化策略:
+    - merged 模式: 所有 rubric 合并为一次 API 调用（减少 5x 调用量）
+    - thinking 默认关闭: 评分任务不需要深度推理
+    - max_tokens=500: JSON 响应很短
     """
 
     def __init__(
@@ -95,13 +100,15 @@ class JudgeExecutor:
         api_key: str = "",
         base_url: str = "https://api.deepseek.com",
         model: str = "deepseek-v4-flash",
-        enable_thinking: bool = True,
+        enable_thinking: bool = False,
         max_concurrent_rubrics: int = 16,
+        use_merged: bool = True,
     ):
         self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
         self.base_url = base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
         self.model = model
         self.enable_thinking = enable_thinking
+        self.use_merged = use_merged
         self._client = None
         self._semaphore: asyncio.Semaphore | None = None
         self._rubric_sem = asyncio.Semaphore(max_concurrent_rubrics)
@@ -111,6 +118,12 @@ class JudgeExecutor:
             from openai import AsyncOpenAI
             self._client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
         return self._client
+
+    def _get_sync_client(self):
+        if not hasattr(self, '_sync_client') or self._sync_client is None:
+            from openai import OpenAI
+            self._sync_client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+        return self._sync_client
 
     async def score_one(
         self,
@@ -136,7 +149,7 @@ class JudgeExecutor:
             "model": self.model,
             "messages": [{"role": "user", "content": judge_prompt}],
             "temperature": 0.0,
-            "max_tokens": 2000,
+            "max_tokens": 500,
         }
         if self.enable_thinking:
             kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
@@ -144,6 +157,123 @@ class JudgeExecutor:
         async with self._rubric_sem:
             response = await client.chat.completions.create(**kwargs)
 
+        raw = response.choices[0].message.content.strip()
+        return RubricScore.from_llm_output(rubric.id, rubric.名称, raw)
+
+    async def score_merged(
+        self,
+        answer: str,
+        rubrics: list,
+    ) -> list[RubricScore]:
+        """合并模式：一次 API 调用对所有 rubric 评分。
+
+        将所有 rubric 合并为一个 prompt，一次调用返回所有分数。
+        API 调用量: N → 1（减少 N 倍）。
+        """
+        if not rubrics:
+            return []
+
+        merged_prompt = _build_merged_prompt(rubrics, answer)
+
+        client = self._get_client()
+        # Scale max_tokens with rubric count: ~100 tokens per rubric JSON entry
+        max_tok = max(800, len(rubrics) * 200)
+        kwargs: dict = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": merged_prompt}],
+            "temperature": 0.0,
+            "max_tokens": max_tok,
+        }
+        if self.enable_thinking:
+            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+
+        async with self._rubric_sem:
+            response = await client.chat.completions.create(**kwargs)
+
+        raw = response.choices[0].message.content.strip()
+        return _parse_merged_response(raw, rubrics)
+
+    def score_merged_sync(
+        self,
+        answer: str,
+        rubrics: list,
+    ) -> list[RubricScore]:
+        """Sync version of score_merged for Ray actor compatibility."""
+        if not rubrics:
+            return []
+
+        merged_prompt = _build_merged_prompt(rubrics, answer)
+
+        client = self._get_sync_client()
+        max_tok = max(800, len(rubrics) * 200)
+        kwargs: dict = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": merged_prompt}],
+            "temperature": 0.0,
+            "max_tokens": max_tok,
+        }
+        if self.enable_thinking:
+            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+
+        response = client.chat.completions.create(**kwargs)
+        raw = response.choices[0].message.content.strip()
+        return _parse_merged_response(raw, rubrics)
+
+    def score_answer_sync(
+        self,
+        answer: str,
+        rubrics: list,
+    ) -> AnswerScores:
+        """Sync version of score_answer for Ray actor compatibility."""
+        if self.use_merged:
+            try:
+                scores = self.score_merged_sync(answer, rubrics)
+            except Exception as e:
+                logger.error(f"Merged rubric scoring failed: {e}")
+                scores = [
+                    RubricScore(rubric_id=r.id, rubric_name=r.名称, 分数=0, 解析错误=str(e))
+                    for r in rubrics
+                ]
+            return AnswerScores(answer=answer, rubric_scores=scores)
+
+        # Per-rubric mode
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _score_one(rubric):
+            try:
+                return self.score_one_sync(rubric, answer)
+            except Exception as e:
+                logger.error(f"Rubric [{rubric.名称}] 评分失败: {e}")
+                return RubricScore(
+                    rubric_id=rubric.id,
+                    rubric_name=rubric.名称,
+                    分数=0,
+                    解析错误=str(e),
+                )
+
+        with ThreadPoolExecutor(max_workers=min(8, len(rubrics))) as pool:
+            futures = [pool.submit(_score_one, r) for r in rubrics]
+            scores = [f.result() for f in futures]
+
+        return AnswerScores(answer=answer, rubric_scores=scores)
+
+    def score_one_sync(self, rubric, answer: str) -> RubricScore:
+        """Sync version of score_one."""
+        judge_prompt = rubric.评分提示词.replace("{content}", answer)
+        if "{content}" not in rubric.评分提示词:
+            judge_prompt += f"\n\n待检查内容：\n{answer}"
+
+        client = self._get_sync_client()
+        kwargs: dict = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": judge_prompt}],
+            "temperature": 0.0,
+            "max_tokens": 500,
+        }
+        if self.enable_thinking:
+            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+
+        response = client.chat.completions.create(**kwargs)
         raw = response.choices[0].message.content.strip()
         return RubricScore.from_llm_output(rubric.id, rubric.名称, raw)
 
@@ -160,6 +290,17 @@ class JudgeExecutor:
             rubrics: Rubric 对象列表
             shuffle_rubrics: 是否打乱 Rubric 顺序（减少位置偏差）
         """
+        if self.use_merged:
+            try:
+                scores = await self.score_merged(answer, rubrics)
+            except Exception as e:
+                logger.error(f"Merged rubric scoring failed: {e}")
+                scores = [
+                    RubricScore(rubric_id=r.id, rubric_name=r.名称, 分数=0, 解析错误=str(e))
+                    for r in rubrics
+                ]
+            return AnswerScores(answer=answer, rubric_scores=scores)
+
         ordered = list(rubrics)
         if shuffle_rubrics:
             ordered = list(ordered)
@@ -236,19 +377,69 @@ class JudgeExecutor:
 
         return output
 
+    def score_answers_sync(
+        self,
+        prompt: str,
+        answers: list[str],
+        rubrics: list,
+    ) -> list[dict]:
+        """Sync version of score_answers — uses ThreadPoolExecutor for concurrency.
+        Designed for Ray actor compatibility (no asyncio.run() needed).
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        results: list[AnswerScores] = []
+
+        def _score_one(ans):
+            return self.score_answer_sync(ans, rubrics)
+
+        with ThreadPoolExecutor(max_workers=min(8, len(answers))) as pool:
+            future_to_idx = {pool.submit(_score_one, a): i for i, a in enumerate(answers)}
+            results_by_idx = {}
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                results_by_idx[idx] = future.result()
+
+        results = [results_by_idx[i] for i in range(len(answers))]
+
+        output = []
+        for result in results:
+            output.append({
+                "回答": result.answer,
+                "评分": [
+                    {
+                        "rubric_id": rs.rubric_id,
+                        "rubric名称": rs.rubric_name,
+                        "分数": rs.分数,
+                        "扣分项": rs.扣分项,
+                        "总结": rs.总结,
+                        "解析错误": rs.解析错误,
+                    }
+                    for rs in result.rubric_scores
+                ],
+                "平均分": result.mean_score,
+                "总分": result.total_score,
+                "分数向量": result.score_vector,
+            })
+
+        return output
+
     def compute_grpo_rewards(
         self,
         score_results: list[dict],
         reward_mode: str = "mean",
+        weights: list[float] | None = None,
     ) -> list[float]:
         """从评分结果计算 GRPO reward 值。
 
         Args:
             score_results: score_answers 的输出
             reward_mode:
-                - "mean": 所有 rubric 分数的均值 (0-10 → 0-1)
-                - "total": 所有 rubric 分数的总和
+                - "mean": 所有 rubric 分数的加权均值 (0-10 → 0-1)
+                - "total": 所有 rubric 分数的加权总和
                 - "pass_fail": 平均分 > 6 得 1，否则 0
+            weights: rubric 权重列表，与 rubric 顺序对应。
+                     未提供时等权。
 
         Returns:
             每个回答的 reward 值列表
@@ -260,12 +451,16 @@ class JudgeExecutor:
                 rewards.append(0.0)
                 continue
 
+            n = len(score_vec)
+            w = weights if weights and len(weights) == n else [1.0] * n
+            total_w = sum(w) or 1.0
+
             if reward_mode == "mean":
-                reward = (sum(score_vec) / len(score_vec)) / 10.0
+                reward = sum(s * wi for s, wi in zip(score_vec, w)) / total_w / 10.0
             elif reward_mode == "total":
-                reward = sum(score_vec) / (len(score_vec) * 10.0)
+                reward = sum(s * wi for s, wi in zip(score_vec, w)) / (total_w * 10.0)
             elif reward_mode == "pass_fail":
-                avg = sum(score_vec) / len(score_vec)
+                avg = sum(s * wi for s, wi in zip(score_vec, w)) / total_w
                 reward = 1.0 if avg >= 6.0 else 0.0
             else:
                 reward = 0.0
@@ -273,6 +468,66 @@ class JudgeExecutor:
             rewards.append(reward)
 
         return rewards
+
+
+def _build_merged_prompt(rubrics: list, answer: str) -> str:
+    """构建合并评分 prompt：所有 rubric 合并为一次 API 调用。"""
+    parts = []
+    for i, r in enumerate(rubrics):
+        # 去掉原始 prompt 中的 {content} 占位符和目标前缀，合并 prompt 会统一放置
+        prompt = r.评分提示词.replace("{content}", "").replace("\n待检查内容：\n", "\n").strip()
+        parts.append(f"## 维度{i + 1}: {r.名称}\n{prompt}\n")
+
+    rubric_list = "\n".join(f"  {i+1}. {r.名称}" for i, r in enumerate(rubrics))
+
+    return (
+        f"你是一个多维度AI回答质量评估员。请对以下回答从 {len(rubrics)} 个维度分别评分。\n\n"
+        f"评分维度：\n{rubric_list}\n\n"
+        f"--- 各维度评分标准 ---\n\n"
+        f"{''.join(parts)}\n"
+        f"=== 待评估内容 ===\n{answer}\n\n"
+        f"=== 输出格式（严格JSON数组）===\n"
+        f'[\n  {{"维度": "{rubrics[0].名称}", "分数": <0-10>, "扣分项": [], "总结": ""}},\n'
+        f'  ...\n'
+        f']\n'
+        f"请按维度顺序输出，每个维度一个JSON对象。只输出JSON数组，不要有其他文字。"
+    )
+
+
+def _parse_merged_response(raw: str, rubrics: list) -> list[RubricScore]:
+    """解析合并评分的 JSON 数组响应。"""
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        lines = lines[1:] if len(lines) > 1 else lines
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines)
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        logger.warning(f"Merged JSON parse failed, raw: {text[:200]}")
+        return [
+            RubricScore(rubric_id=r.id, rubric_name=r.名称, 分数=0, 解析错误="merged parse failed")
+            for r in rubrics
+        ]
+
+    if not isinstance(data, list):
+        data = [data]
+
+    scores = []
+    for i, r in enumerate(rubrics):
+        item = data[i] if i < len(data) else {}
+        scores.append(RubricScore(
+            rubric_id=r.id,
+            rubric_name=r.名称,
+            分数=float(item.get("分数", 0)),
+            扣分项=item.get("扣分项", []),
+            总结=item.get("总结", ""),
+            原始输出=json.dumps(item, ensure_ascii=False),
+        ))
+    return scores
 
 
 def _parse_score_json(raw: str) -> dict:

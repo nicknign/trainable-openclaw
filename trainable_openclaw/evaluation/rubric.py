@@ -54,7 +54,9 @@ class Rubric:
 
     @classmethod
     def from_dict(cls, d: dict) -> Rubric:
-        return cls(**d)
+        from dataclasses import fields as dc_fields
+        known = {f.name for f in dc_fields(cls)}
+        return cls(**{k: v for k, v in d.items() if k in known})
 
 
 class RubricStore:
