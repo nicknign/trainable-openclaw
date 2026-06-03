@@ -676,7 +676,7 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 | C1 | 主循环串联 | ✅ 已完成 | 2026-06-03 | pipeline.py + 20 tests + 远程GPU e2e + CLI三种模式 |
 | C2 | Dashboard | ✅ 已完成 | 2026-06-03 | dashboard.py + 6 tests + 启动验证 + 编码修复 |
 | D1 | 测试集构建 | ✅ 已完成 | 2026-06-02 | 80 test prompts, 11类别, train/test零重叠 |
-| D2 | 效果评估体系 | 🟡 进行中 | 2026-06-03 | baseline + post-eval ckpt10对比完成, 模型退化确认 |
+| D2 | 效果评估体系 | ✅ 已完成 | 2026-06-03 | baseline + post-eval ckpt10对比完成, 模型退化确认 |
 | D3 | 持续改进闭环 | ⬜ | | 一个月后 |
 
 ### Phase 1 里程碑总结（2026-05-25）
