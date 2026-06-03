@@ -515,6 +515,49 @@ LMSYS 提供:                                 LMSYS 不提供（也不需要）:
 
 ---
 
+### Step S6 — Agent 框架适配调研
+
+**背景**: 当前仿真管线基于 LMSYS 种子 prompt + User Sim 多轮纠错对话。但终极目标是让 open-claw、harness 等个人助手框架接入自进化引擎，在真实使用中持续进化。
+
+**核心问题**:
+- Agent 框架的对话格式和普通 chat 有什么不同？（system prompt / 工具调用 / 多步推理 / 上下文窗口）
+- Agent 的日志长什么样？（当前 SQLite messages 表能否直接复用？还是需要新 schema？）
+- 自进化引擎的入口在哪里？（纠正 Agent 的工具选择错误？推理步骤？最终回答？）
+- 训练数据从哪来？（用户显式纠错？隐式反馈如重试/中断？Agent 自我反思？）
+
+**要做的事：**
+
+1. **open-claw 框架调研**
+   - 了解 open-claw 的 Agent 架构（消息流、工具调用、记忆管理）
+   - 分析其对话日志格式（一轮 Agent 交互包含哪些字段？）
+   - 跑通一个 open-claw 实例，抓取典型对话日志样本
+2. **harness 框架调研**
+   - 了解 harness 的 Agent 循环结构（plan → act → observe → reflect）
+   - 分析其日志/追踪格式
+   - 对比与 open-claw 的异同
+3. **对话格式对比分析**
+   - 当前仿真格式: `[{role, content, reasoning}]` — 简单 chat 格式
+   - Agent 对话格式: `[{role, content, tool_calls, tool_results, ...}]` — 更复杂
+   - 差异分析：哪些字段可以直接映射？哪些需要新增？
+   - 是否需要统一的"Agent 对话中间表示"（IR）？
+4. **适配方案设计**
+   - 确定自进化引擎对接 Agent 框架的最小接口（adapter pattern）
+   - ConversationStore schema 扩展方案（如需新增 tool_call / observation / reflection 等 role）
+   - Rubric 体系扩展（Agent 场景下评判维度不同：工具选择合理性、步骤效率、错误恢复能力等）
+   - 仿真管线升级方案（User Sim 如何模拟 Agent 场景的纠错？）
+
+**产物**:
+- `docs/research/agent_frameworks.md` — Agent 框架调研笔记（open-claw / harness 对比）
+- `docs/design/agent_adapter.md` — Agent 适配层设计文档
+- `data/samples/` — 典型 Agent 对话日志样本（JSON 格式）
+
+**验证**:
+- open-claw 和 harness 至少各跑通一个实例，抓取到真实对话日志
+- 对话格式对比表覆盖至少 5 个维度差异
+- 适配方案有明确的接口定义和 schema 变更清单
+
+---
+
 ## Phase 2: 自进化评判系统
 
 > 核心理念：**Rubrics不是人工预设的，而是LLM从用户反馈中自主归纳生成的。**
@@ -669,6 +712,7 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 | **S3** | **轨迹评估与数据导出** | ✅ 已完成 | 2026-05-30 | 分级+格式化→训练对/rubric种子, 48训练对 |
 | **S4** | **反思与持续优化** | ⬜ | | Reflection → 更新 prompts → FAIL率下降 |
 | **S5** | **评估指标体系** | ✅ 已完成 | 2026-06-03 | metrics.py + 27 tests, 4 dataclass: JudgeQuality/ModelImprovement/RubricQuality/Convergence |
+| **S6** | **Agent 框架适配调研** | ⬜ | | open-claw / harness 对话格式与日志结构调研, 适配方案设计 |
 | B1 | 用户反馈收集与分析 | ✅ 已完成 | 2026-05-30 | LLM分析 7模式 + simple模式 14维度 |
 | B2 | LLM自主生成Rubrics | ✅ 已完成 | 2026-05-31 | 优化至8条动态rubric (rubrics_dynamic, category-aware) |
 | B3 | Rubric执行器(Judge) | ✅ 已完成 | 2026-06-03 | Sync API + merged scoring + 真实API验证通过 |
