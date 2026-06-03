@@ -12,9 +12,9 @@ sleep 2
 echo "=== Starting Phase 3 Training Server ==="
 echo "Model: Qwen3-4B + LoRA rank=16"
 echo "Training data: data/phase3_datasets/train_prompts.jsonl (557 pairs, 496 unique prompts)"
-echo "Rubrics: data/rubrics_dynamic.json (8 dynamic category-aware rubrics)"
+echo "Rubrics: data/rubrics_category.json (20 total, 4 per category group — designed from correction data)"
 echo "Reward: rubric-based via DeepSeek-v4-flash judge (merged mode, no thinking)"
-echo "Config: idle=30s, 10 steps/cycle, 48 prompts/step (sampled from 570), rollout_n=4, lr=5e-6, max_rounds=5"
+echo "Config: idle=30s, 20 steps/cycle, 48 prompts/step (sampled from 496), rollout_n=4, lr=1e-5, max_rounds=5"
 echo "Checkpoint: every 10 steps, keep 3, dir=checkpoints"
 echo ""
 
@@ -36,7 +36,7 @@ nohup /data/anaconda3/bin/python -m verl.trainer.serve_ppo \
     ++actor_rollout_ref.rollout.enable_sleep_mode=false \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.actor.ppo_mini_batch_size=8 \
-    actor_rollout_ref.actor.optim.lr=5e-6 \
+    actor_rollout_ref.actor.optim.lr=1e-5 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
@@ -51,11 +51,11 @@ nohup /data/anaconda3/bin/python -m verl.trainer.serve_ppo \
     +trainer.idle_timeout=30 \
     +trainer.min_samples=0 \
     +trainer.max_train_rounds=5 \
-    +trainer.train_steps_per_cycle=10 \
+    +trainer.train_steps_per_cycle=20 \
     +trainer.prompts_per_step=48 \
     +trainer.trajectory.enabled=true \
     +trainer.trajectory.data_path=data/phase3_datasets/train_prompts.jsonl \
-    +trainer.trajectory.rubrics_path=data/rubrics_dynamic.json \
+    +trainer.trajectory.rubrics_path=data/rubrics_category.json \
     +trainer.trajectory.api_key=sk-906ad0dc48354e7aba594ef6d9aa5be6 \
     +trainer.trajectory.max_rubrics=8 \
     +trainer.trajectory.reward_mode=mean \

@@ -236,6 +236,99 @@ class ServeRunner(TaskRunner):
         self.checkpoint_manager.wake_up_replicas()
         logger.info("All rollout replicas awake")
 
+    @staticmethod
+    def _classify_prompt(prompt_text: str) -> str:
+        """Classify a prompt into one of 11 categories using keyword matching.
+
+        Categories map to 5 rubric groups via rubrics_category.json.
+        Returns empty string if classification fails.
+        """
+        text = prompt_text.lower()
+        text_cn = prompt_text
+
+        # coding/debugging keywords (check first — most distinctive)
+        code_kw = ["def ", "class ", "import ", "function ", "return ", "print(",
+                   "```python", "```javascript", "```js", "```html", "```css",
+                   "code", "program", "api", "endpoint", "database", "sql",
+                   "python", "javascript", "html", "css", "react", "node",
+                   "写一个", "代码", "编程", "函数", "实现一个", "算法",
+                   "package ", "npm ", "pip ", "require(", "from ", "struct ",
+                   "trait ", "impl ", "fn ", "public class", "#include"]
+        debug_kw = ["debug", "fix", "error", "bug", "broken", "not working",
+                    "doesn't work", "报错", "修复", "调试", "错误", "exception",
+                    "stack trace", "traceback", "crash"]
+
+        # math/logic keywords
+        math_kw = ["math", "calculate", "equation", "solve", "probability",
+                   "statistics", "number theory", "algebra", "geometry",
+                   "数学", "计算", "求解", "证明", "公式", "integral", "derivative"]
+        logic_kw = ["logic", "reasoning", "argument", "fallacy", "premise",
+                    "conclusion", "syllogism", "推理", "逻辑", "论证",
+                    "which of the following", "which option"]
+
+        # brainstorming/explanation keywords
+        brainstorm_kw = ["brainstorm", "list", "ideas", "suggest", "options",
+                         "what are", "name some", "give me", "examples of",
+                         "建议", "列举", "有哪些", "推荐", "列出", "有哪些不同",
+                         "types of", "kinds of", "varieties of"]
+        explain_kw = ["explain", "how does", "what is", "why", "describe",
+                      "meaning of", "definition", "解释", "是什么", "为什么",
+                      "怎么", "如何", "说明", "阐述", "介绍"]
+
+        # writing keywords
+        creative_kw = ["story", "creative", "poem", "character", "narrative",
+                       "fiction", "novel", "plot", "写故事", "创意写作", "小说",
+                       "故事", "诗歌", "角色", "情节", "write a", "essay about"]
+        copywrite_kw = ["copy", "advertisement", "marketing", "product description",
+                        "slogan", "headline", "广告", "文案", "产品描述", "营销",
+                        "promote", "sales pitch", "landing page"]
+        debate_kw = ["debate", "argue", "for or against", "pros and cons",
+                     "opinion", "do you agree", "do you think", "辩论", "争论",
+                     "是否同意", "赞成还是反对"]
+
+        # translation/instruction keywords
+        translate_kw = ["translate", "翻译", "in english", "in french", "in german",
+                        "in japanese", "in chinese", "in spanish",
+                        "what does", "mean in"]
+        instruction_kw = ["sort", "order", "rank", "compare", "classify",
+                          "categorize", "排序", "比较", "分类", "按照", "根据",
+                          "follow the", "instruction", "format", "organize"]
+
+        # Priority order: code/debug > math/logic > writing > translation/instruction > knowledge
+        if any(kw in text for kw in code_kw) or any(kw in text_cn for kw in ["代码", "编程", "函数", "写一个", "实现"]):
+            if any(kw in text for kw in debug_kw):
+                return "debugging"
+            return "coding"
+        if any(kw in text for kw in debug_kw):
+            return "debugging"
+
+        if any(kw in text for kw in math_kw):
+            return "math"
+        if any(kw in text for kw in logic_kw):
+            return "logical reasoning"
+
+        if any(kw in text for kw in translate_kw):
+            return "translation"
+        if any(kw in text for kw in instruction_kw):
+            return "instruction following"
+
+        if any(kw in text for kw in creative_kw):
+            return "creative writing"
+        if any(kw in text for kw in copywrite_kw):
+            return "copywriting"
+        if any(kw in text for kw in debate_kw):
+            return "debating"
+
+        if any(kw in text for kw in explain_kw):
+            return "explanation"
+        if any(kw in text for kw in brainstorm_kw):
+            return "brainstorming"
+
+        # Default: try to guess from question structure
+        if "?" in text and len(text) < 200:
+            return "explanation"
+        return ""
+
     def train_step(self, training_data: dict) -> dict:
         """Execute one GRPO training step — generation, reward, and training.
 
@@ -378,15 +471,27 @@ class ServeRunner(TaskRunner):
                         for ids in unique_prompt_ids
                     ]
 
-                # Score each prompt's rollout_n responses
+                # Score each prompt's rollout_n responses (with category from data, or keyword fallback)
+                prompt_categories = training_data.get("prompt_categories", [])
                 for p_idx in range(n_prompts):
                     base = p_idx * rollout_n
                     group_responses = all_responses_text[base : base + rollout_n]
+                    prompt_text = prompt_texts[p_idx]
+
+                    # Use category from training data if available, else keyword classify
+                    prompt_cat = ""
+                    if p_idx < len(prompt_categories) and prompt_categories[p_idx]:
+                        prompt_cat = prompt_categories[p_idx]
+                    else:
+                        prompt_cat = self._classify_prompt(prompt_text)
+                    if prompt_cat:
+                        _log(f"Prompt {p_idx + 1} category: {prompt_cat}")
 
                     try:
                         group_rewards = bridge.score_responses(
-                            prompt_texts[p_idx],
+                            prompt_text,
                             group_responses,
+                            category=prompt_cat,
                         )
                     except Exception as e:
                         _log(f"Rubric scoring failed for prompt {p_idx}: {e} — zero rewards")
@@ -786,7 +891,8 @@ def _load_trajectory_data(config, tokenizer) -> list[dict]:
         logger.warning("Trajectory data not found: %s", data_path)
         return []
 
-    # Extract unique seed prompts (preserve order)
+    # Extract unique seed prompts and shuffle for category diversity
+    import random as _random
     seen = set()
     unique_prompts = []
     for p in pairs:
@@ -797,6 +903,10 @@ def _load_trajectory_data(config, tokenizer) -> list[dict]:
                 "prompt_text": seed,
                 "类别": p.get("类别", "") or p.get("category", ""),
             })
+
+    # Shuffle to ensure category diversity per training step
+    _random.seed(42)
+    _random.shuffle(unique_prompts)
 
     if num_prompts and num_prompts < len(unique_prompts):
         unique_prompts = unique_prompts[:num_prompts]
@@ -1040,6 +1150,7 @@ def run_serve(config) -> None:
                     step_prompts = []
                     step_ground_truths = []
                     step_prompt_texts = []
+                    step_prompt_categories = []
                     for k in range(prompts_per_step):
                         idx = (start_idx + k) % max(len(step_candidates), 1)
                         item = step_candidates[idx]
@@ -1047,6 +1158,7 @@ def run_serve(config) -> None:
                         step_prompts.append(item.get("prompt_ids") if isinstance(item, dict) else item["prompt_ids"])
                         step_ground_truths.append(item.get("ground_truth") if isinstance(item, dict) else item.get("metadata", {}).get("ground_truth"))
                         step_prompt_texts.append(item.get("prompt_text", "") if isinstance(item, dict) else item.get("metadata", {}).get("prompt_text", ""))
+                        step_prompt_categories.append(item.get("类别", "") if isinstance(item, dict) else item.get("metadata", {}).get("类别", ""))
 
                     training_data = {
                         "prompts": step_prompts,
@@ -1065,6 +1177,7 @@ def run_serve(config) -> None:
                         training_data["base_url"] = base_url
                         training_data["judge_model"] = judge_model
                         training_data["prompt_texts"] = step_prompt_texts
+                        training_data["prompt_categories"] = step_prompt_categories
                         training_data["max_rubrics"] = traj_config.get("max_rubrics", 0)
                         training_data["reward_mode"] = traj_config.get("reward_mode", "mean")
                         _rw = traj_config.get("rubric_weights")

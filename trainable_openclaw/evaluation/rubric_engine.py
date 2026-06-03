@@ -1,19 +1,21 @@
 """
-Dynamic Rubric Engine — 自主分析错误案例，生成/合并/精炼高通用性 Rubrics.
+Dynamic Rubric Engine — 从错误案例中自主生成高通用性 Rubrics.
 
 Pipeline:
   1. extract_errors()   — 从轨迹 JSONL 提取错误案例，按类别分组
   2. analyze_errors()   — LLM 分析每类错误的共性模式
-  3. generate_rubrics() — 为每类生成 1-2 条高覆盖 Rubric
-  4. merge_rubrics()    — 跨类别合并相似 Rubric
+  3. generate_rubrics() — 基于错误模式生成 5-8 条通用 Rubric（所有类别适用）
+  4. merge_rubrics()    — 合并内容重叠的 Rubric
   5. refine_rubrics()   — 精炼最终版，确保数量少、覆盖全
+  6. validate()         — 小样本验证评分分布，确保区分度
 
 Usage as script:
   python -m trainable_openclaw.evaluation.rubric_engine \
     --input data/trajectories_high_error.jsonl \
     --output data/rubrics_dynamic.json \
     --api-key sk-xxx \
-    --max-rubrics 8
+    --max-rubrics 8 \
+    --validate
 """
 
 from __future__ import annotations
@@ -277,19 +279,21 @@ class RubricEngine:
             )
 
         prompt = (
-            "你是一个评分标准设计专家。请为以下各类提示词设计严格量化的评分 Rubric。\n\n"
+            "你是一个严格的评分标准设计专家。请基于以下错误分析，设计严格量化的通用评分 Rubric。\n\n"
             "设计要求:\n"
-            "1. 每条 rubric 覆盖 1-3 个相关类别（不要一条覆盖全部）\n"
-            "2. 满分10分，扣分制，每项扣分理由明确量化\n"
-            "3. 评分结果必须为 JSON: {\"分数\": <0-10>, \"扣分项\": [], \"总结\": \"\"}\n"
-            "4. 总数量控制在 5-8 条，优先覆盖错误率高的类别\n"
-            "5. 通用维度（如事实准确性）可跨类别共用\n\n"
+            "1. 每条 rubric 必须对所有 prompt 类别都适用（通用维度，不限定特定类型）\n"
+            "2. 满分10分，扣分制，但严格扣分：普通回答应在3-7分，只有各方面都完美的回答才给9-10分\n"
+            "3. 评分结果必须为 JSON: {\"分数\": <0-10>, \"扣分项\": [\"具体扣分原因\"], \"总结\": \"一句话评价\"}\n"
+            "4. 总数量 5-8 条，按错误频率确定优先级（高频错误 → 优先生成 rubric）\n"
+            "5. 每条 rubric 聚焦一个独立维度，维度间不重叠，确保能区分好回答和差回答\n"
+            "6. 评分标准必须严格、具体、可机械执行，不能有模糊表述（如禁止\"较好\"\"较差\"等主观词）\n"
+            "7. 关键：扣分门槛要合理。轻微问题扣1-2分，明显缺陷扣3-5分，严重错误扣6-10分。不要让所有回答都集中在高分段\n\n"
             + "\n".join(parts) +
             f"\n\n=== 输出格式（严格JSON数组）===\n"
             '[\n  {{\n'
-            '    "名称": "rubric名称",\n'
+            '    "名称": "rubric名称（简洁描述检查维度）",\n'
             '    "评分提示词": "完整评分prompt（含评分标准+JSON输出格式+{{content}}占位符）",\n'
-            '    "适用类别": ["类别1", "类别2"]\n'
+            '    "适用类别": ["all"]\n'
             '  }}, ...\n'
             ']\n'
             "只输出JSON数组，不要有其他文字。"
@@ -345,16 +349,15 @@ class RubricEngine:
         prompt = (
             f"当前有 {len(rubrics)} 条 Rubric，需要合并到最多 {self.max_rubrics} 条。\n\n"
             "合并原则:\n"
-            "1. 内容重叠 >50% 的两条合并为一条\n"
-            "2. 合并后适用类别取并集\n"
-            "3. 保留更详细的评分标准\n"
-            "4. 不要创造新维度，只做合并去重\n\n"
+            "1. 内容重叠 >50% 的两条合并为一条，取更详细的那条\n"
+            "2. 合并后保持维度独立性，不要创造新维度\n"
+            "3. 所有 rubric 均为通用维度（适用所有 prompt 类型）\n\n"
             + "\n".join(parts) +
             f"\n\n=== 输出格式（严格JSON数组，{self.max_rubrics}条以内）===\n"
             '[\n  {{\n'
             '    "名称": "rubric名称",\n'
             '    "评分提示词": "合并后的完整评分prompt",\n'
-            '    "适用类别": ["类别1", "类别2"],\n'
+            '    "适用类别": ["all"],\n'
             '    "合并来源": ["Rubric X", "Rubric Y"]\n'
             '  }}, ...\n'
             ']\n'
@@ -411,14 +414,14 @@ class RubricEngine:
             "1. 每条 rubric 的评分标准必须量化到可机械执行（具体扣几分）\n"
             "2. 消除模糊表述（如'较好''较差'改为具体数值门槛）\n"
             "3. 确保 JSON 输出格式指令统一且明确\n"
-            "4. 适用类别标注准确\n"
+            "4. 维度间不能有重叠，每个维度只检查一个方面\n"
             "5. 保持或减少当前数量\n\n"
             + "\n".join(parts) +
             "\n\n=== 输出格式（严格JSON数组）===\n"
             '[\n  {{\n'
             '    "名称": "rubric名称",\n'
             '    "评分提示词": "精炼后的完整评分prompt",\n'
-            '    "适用类别": ["类别1", "类别2"]\n'
+            '    "适用类别": ["all"]\n'
             '  }}, ...\n'
             ']\n'
             "只输出JSON数组。"
@@ -538,6 +541,165 @@ class RubricEngine:
         logger.info("Saved %d rubrics to %s", len(data), path)
 
     # ------------------------------------------------------------------
+    # Step 6: Validate rubrics before deployment
+    # ------------------------------------------------------------------
+
+    def validate(
+        self,
+        rubrics: list[CategoryRubric],
+        sample_answers: list[dict] | None = None,
+        min_mean_reward: float = 0.3,
+        min_positive_ratio: float = 0.4,
+    ) -> dict:
+        """Validate rubrics by scoring sample answer pairs and checking distribution.
+
+        Uses known-quality test answers to verify the rubrics produce reasonable,
+        distinguishable scores (not all 0 or all 10).
+
+        Args:
+            rubrics: Generated rubrics to validate.
+            sample_answers: list of {prompt, answer} pairs. If None, uses built-in test set.
+            min_mean_reward: Minimum acceptable mean reward.
+            min_positive_ratio: Minimum acceptable ratio of rewards > 0.5.
+
+        Returns:
+            {passed: bool, mean_reward: float, positive_ratio: float,
+             per_item: [{prompt, mean_score, scores}], summary: str}
+        """
+        import hashlib
+        import time
+
+        logger.info("Validating %d rubrics ...", len(rubrics))
+
+        # Built-in test set: answers at DIFFERENT quality levels.
+        # Rubrics must produce spread >0.1 across these (bad vs good distinguishable).
+        if sample_answers is None:
+            sample_answers = [
+                {
+                    "prompt": "解释什么是机器学习",
+                    "answer": "机器学习是AI的一种，让电脑自己学习。有监督学习和无监督学习。就是让机器变聪明。"
+                    # Deliberately simplistic, vague — should score low
+                },
+                {
+                    "prompt": "写一个Python函数排序列表",
+                    "answer": "def sort_list(arr):\n    return sorted(arr)"
+                    # Correct but minimal — should score medium
+                },
+                {
+                    "prompt": "描述光合作用的过程",
+                    "answer": "光合作用是植物利用光能、水和二氧化碳制造葡萄糖并释放氧气的过程。主要发生在叶绿体中，分为光反应（类囊体膜上，水光解产生ATP和NADPH）和暗反应（基质中，Calvin循环固定CO2）。光合作用为地球生命提供能量基础和氧气来源。"
+                    # Detailed and accurate — should score high
+                },
+            ]
+
+        # Build rubric dicts compatible with JudgeExecutor
+        rubric_dicts = []
+        for r in rubrics:
+            rubric_dicts.append({
+                "id": hashlib.md5(r.name.encode()).hexdigest()[:12],
+                "名称": r.name,
+                "评分提示词": r.prompt,
+                "来源模式": "rubric_engine validation",
+                "版本": 1,
+                "命中次数": 0,
+                "最后命中时间": 0.0,
+                "状态": "活跃",
+                "创建时间": time.time(),
+            })
+
+        from trainable_openclaw.training.reward_bridge import RewardBridge
+        from trainable_openclaw.evaluation.rubric import Rubric
+
+        # Build Rubric objects from dicts
+        rubric_objs = [Rubric.from_dict(rd) for rd in rubric_dicts]
+        active_rubrics = [r for r in rubric_objs if r.状态 == "活跃"]
+
+        from trainable_openclaw.evaluation.judge import JudgeExecutor
+        judge = JudgeExecutor(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            model=self.model,
+            enable_thinking=False,
+            use_merged=True,
+        )
+
+        all_rewards = []
+        per_item = []
+
+        for sa in sample_answers:
+            prompt_text = sa.get("prompt", "")
+            answer_text = sa.get("answer", "")
+            if not prompt_text or not answer_text:
+                continue
+
+            try:
+                results = judge.score_answers_sync(
+                    prompt=prompt_text,
+                    answers=[answer_text],
+                    rubrics=active_rubrics,
+                )
+                rewards = judge.compute_grpo_rewards(results, reward_mode="mean")
+                all_rewards.extend(rewards)
+                per_item.append({
+                    "prompt": prompt_text[:80],
+                    "answer": answer_text[:100],
+                    "mean_score": sum(rewards) / len(rewards) if rewards else 0,
+                    "scores": rewards,
+                })
+            except Exception as e:
+                logger.warning("Validation failed for '%s...': %s", prompt_text[:50], e)
+                all_rewards.append(0.0)
+                per_item.append({
+                    "prompt": prompt_text[:80],
+                    "answer": answer_text[:100],
+                    "mean_score": 0.0,
+                    "scores": [],
+                    "error": str(e),
+                })
+
+        mean_reward = sum(all_rewards) / len(all_rewards) if all_rewards else 0
+        positive = sum(1 for r in all_rewards if r > 0.5)
+        positive_ratio = positive / len(all_rewards) if all_rewards else 0
+
+        # Also check score variance (rubrics should distinguish quality levels)
+        variances = []
+        for pi in per_item:
+            scores = pi.get("scores", [])
+            if len(scores) > 1:
+                variances.append(max(scores) - min(scores))
+        score_spread = sum(variances) / len(variances) if variances else 0
+
+        passed = (
+            mean_reward >= min_mean_reward
+            and positive_ratio >= min_positive_ratio
+            and score_spread > 0.1  # rubrics must produce non-uniform scores
+        )
+
+        summary = (
+            f"{'PASS' if passed else 'FAIL'}: "
+            f"mean={mean_reward:.3f} (need >={min_mean_reward}), "
+            f"positive_ratio={positive_ratio:.1%} (need >={min_positive_ratio:.0%}), "
+            f"spread={score_spread:.3f} (need >0.1), "
+            f"n_answers={len(sample_answers)}, n_rubrics={len(active_rubrics)}"
+        )
+        logger.info(summary)
+
+        if not passed:
+            logger.warning("Per-item scores: %s", [
+                {"prompt": pi["prompt"], "mean": pi["mean_score"]}
+                for pi in per_item
+            ])
+
+        return {
+            "passed": passed,
+            "mean_reward": mean_reward,
+            "positive_ratio": positive_ratio,
+            "score_spread": score_spread,
+            "per_item": per_item,
+            "summary": summary,
+        }
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
@@ -579,6 +741,8 @@ def main():
                         help="最大 Rubric 数量 (默认 8)")
     parser.add_argument("--min-correction-rounds", type=int, default=1,
                         help="最少纠错轮次阈值 (0=全部轨迹)")
+    parser.add_argument("--validate", action="store_true",
+                        help="生成后验证 rubric 评分分布")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="详细日志")
     args = parser.parse_args()
@@ -601,6 +765,15 @@ def main():
 
     engine.save(rubrics, args.output)
     print(f"\nDone. {len(rubrics)} rubrics saved to {args.output}")
+
+    if args.validate:
+        print("\n=== Validating rubrics ===")
+        validation = engine.validate(rubrics)
+        print(f"\nValidation: {validation['summary']}")
+        if not validation["passed"]:
+            print("WARNING: Rubrics failed validation! Check per-item scores above.")
+            print("Consider adjusting --max-rubrics or re-running with different input.")
+            sys.exit(1)
 
     if args.verbose:
         for i, r in enumerate(rubrics):

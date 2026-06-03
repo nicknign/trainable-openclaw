@@ -66,6 +66,10 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ---
 
+# 硬件环境
+远程linux的访问方式见文件：.vscode\sftp.json  ssh连接与sftp使用相同的端口连接
+
+
 # 项目进展记录
 
 ## 2026/05/21
@@ -570,3 +574,73 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 | `scripts/start_train.sh` | +save_ckpt_interval, +checkpoint_dir, rollout_n 8→4, mini_batch 16→8, max_rounds 10→5 |
 | `scripts/test_checkpoint.sh` | 新建: checkpoint 验证脚本 |
 | `tmp/fix_leak.py` | 新建: train/test 重叠修复 |
+
+---
+
+## 2026/06/03
+
+### 训练总结与分析
+
+- **总步数**: 42 steps（Phase 1: 15 小batch debug + Phase 2: 27 全batch）
+- **Checkpoint**: 仅 Phase 1 的 `global_step_10` 被保存（Phase 2/3 重启后 `save_ckpt_interval=10` 未触发，丢失后续检查点）
+- **奖励趋势**: Phase 2 mean=0.184, 范围 0.142~0.297, 轻微下行
+- **分析产物**: `runs/2026-06-03_42steps/` — 训练日志 + 分析报告 + 基线/训练后评测
+
+### Checkpoint 评测：模型显著退化
+
+- **LoRA 提取**: 从 FSDP checkpoint 提取 504 个 LoRA 参数 (rank=16) → PEFT adapter 格式 → vLLM 加载
+- **工具**: `scripts/extract_lora.py` + `scripts/convert_lora.py` — FSDP → safetensors + adapter_config.json
+- **评测**: `scripts/run_post_eval.py` — LoRA adapter 推理 + 纠错率评估 (78 prompts, ~15min)
+
+| 指标 | 基线 (Qwen3-4B) | 训练后 (ckpt step_10) | Delta |
+|------|-----------------|----------------------|-------|
+| 纠错率 | 0.6000 | 0.8846 | **+0.28 (变差)** |
+| 直接通过 | 32 (40%) | 9 (11.5%) | -23 |
+| 失败 | 12 (15%) | 35 (44.9%) | +23 |
+| 平均纠错轮次 | 0.95 | 2.04 | +1.09 |
+
+- **10/11 类别恶化**，仅 logical reasoning 改善
+- **结论**: Phase 1 早期 checkpoint (step_10) 处于训练劣化阶段；Phase 2 checkpoint 丢失无法评估后期效果
+
+### 框架代码完整评测
+
+**全部 154 个单测通过** (6 个测试文件)，0 失败：
+
+| 模块 | 测试数 | 状态 |
+|------|--------|------|
+| conversation_store (B0) | 23 | ✅ |
+| orchestrator (A2) | 24 | ✅ |
+| metrics (S5) | 27 | ✅ |
+| rubric_evolver (B4) | 25 | ✅ |
+| pipeline (C1) | 20 | ✅ |
+| dashboard (C2) | 6 | ✅ |
+
+**远程真实 API 验证** (`scripts/validate_modules.py`, 4 tests):
+- JudgeExecutor 单 rubric 评分 ✅
+- JudgeExecutor 合并多 rubric 评分 ✅
+- RubricEvolver 维度提取 + 触发条件 + 统计 ✅
+- Pipeline 训练配置生成 ✅
+
+**Rubric Evolver 端到端验证** (`scripts/verify_evolver.py`):
+- get_rubric_stats / check_and_evolve / archive_stale 全部正常
+
+**修复的 Bug：**
+- `pipeline.py`: `asyncio.to_thread()` 不能包装 async 方法 → 改为直接 `await`
+- `validate_modules.py`: RubricScore 字段名错误 (`理由`→`总结`), `use_merged` 是构造参数不是方法参数
+- `test_dashboard.py`: Windows GBK 编码 + 路径解析
+
+**Pipeline e2e 远程 GPU 验证**: 5 prompts, 274s, correction rate 0.6, 正常完成
+
+### 今日改动文件
+
+| 文件 | 改动 |
+|------|------|
+| `trainable_openclaw/pipeline.py` | fix asyncio.to_thread for async methods |
+| `tests/test_dashboard.py` | fix Windows GBK encoding + path resolution |
+| `scripts/validate_modules.py` | 新建: judge + evolver + pipeline 4 项真实 API 验证 |
+| `scripts/extract_lora.py` | 新建: FSDP checkpoint → LoRA weights 提取 |
+| `scripts/convert_lora.py` | 新建: FSDP LoRA → PEFT safetensors 格式转换 |
+| `scripts/run_post_eval.py` | 新建: LoRA adapter 纠错率评测 |
+| `scripts/analyze_run.py` | 新建: 训练日志解析 + 分析报告生成 |
+| `docs/validation_report.md` | 新建: 框架代码完整评测报告 |
+| `runs/2026-06-03_42steps/` | 新建: 训练日志/分析/评测结果存档 |

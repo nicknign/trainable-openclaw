@@ -668,15 +668,15 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 | **S2** | **用户模拟 + 纠错交互生成** | ✅ 已完成 | 2026-06-02 | 500 seeds → 557训练对 + 80测试对, 11类别 |
 | **S3** | **轨迹评估与数据导出** | ✅ 已完成 | 2026-05-30 | 分级+格式化→训练对/rubric种子, 48训练对 |
 | **S4** | **反思与持续优化** | ⬜ | | Reflection → 更新 prompts → FAIL率下降 |
-| **S5** | **评估指标体系** | 🟡 进行中 | 2026-06-02 | 训练前基线已建立 (baseline_eval.json) |
+| **S5** | **评估指标体系** | ✅ 已完成 | 2026-06-03 | metrics.py + 27 tests, 4 dataclass: JudgeQuality/ModelImprovement/RubricQuality/Convergence |
 | B1 | 用户反馈收集与分析 | ✅ 已完成 | 2026-05-30 | LLM分析 7模式 + simple模式 14维度 |
 | B2 | LLM自主生成Rubrics | ✅ 已完成 | 2026-05-31 | 优化至8条动态rubric (rubrics_dynamic, category-aware) |
-| B3 | Rubric执行器(Judge) | ✅ 已完成 | 2026-06-02 | Sync API + merged scoring, 5 bug修复, 正式训练运行中 |
-| B4 | Rubric持续演进 | ⬜ | | 缓冲 |
-| C1 | 主循环串联 | 🟡 进行中 | 2026-06-02 | 动态rubric + checkpoint + 496 prompts全闭环, 5轮训练中 |
-| C2 | Dashboard | ⬜ | | 缓冲 |
+| B3 | Rubric执行器(Judge) | ✅ 已完成 | 2026-06-03 | Sync API + merged scoring + 真实API验证通过 |
+| B4 | Rubric持续演进 | ✅ 已完成 | 2026-06-03 | rubric_evolver.py + 25 tests + 远程e2e验证 |
+| C1 | 主循环串联 | ✅ 已完成 | 2026-06-03 | pipeline.py + 20 tests + 远程GPU e2e + CLI三种模式 |
+| C2 | Dashboard | ✅ 已完成 | 2026-06-03 | dashboard.py + 6 tests + 启动验证 + 编码修复 |
 | D1 | 测试集构建 | ✅ 已完成 | 2026-06-02 | 80 test prompts, 11类别, train/test零重叠 |
-| D2 | 效果评估体系 | 🟡 进行中 | 2026-06-02 | baseline_eval.json + 训练后Δ纠错率待测 |
+| D2 | 效果评估体系 | 🟡 进行中 | 2026-06-03 | baseline + post-eval ckpt10对比完成, 模型退化确认 |
 | D3 | 持续改进闭环 | ⬜ | | 一个月后 |
 
 ### Phase 1 里程碑总结（2026-05-25）
@@ -806,3 +806,36 @@ Streamlit 简易面板：当前模式、请求统计、训练记录、评估分�
 - 训练完成后运行纠错率评估 (`baseline_eval.json` vs 训练后) → 计算 Δ纠错率
 - 对比 Round 3 (动态 rubric, 496 prompts) vs Round 2 (固定 rubric, 48 prompts)
 - 日志驱动自动 rubric 更新 (B4)
+
+### Phase 3 全部模块完成 + 训练评测（2026-06-03）
+
+**路线图全部模块代码开发完成。** S5/B4/C1/C2 均通过单测 + 远程验证。
+
+**单测总计**: 154 passed, 0 failed (6 test files)
+
+**远程 GPU 真实 API 验证：**
+| 测试 | 结果 |
+|------|------|
+| JudgeExecutor 单 rubric 评分 | ✅ |
+| JudgeExecutor 合并多 rubric 评分 | ✅ |
+| RubricEvolver 维度提取 + 触发 + 统计 + 归档 | ✅ |
+| Pipeline CLI 三种模式 + GPU e2e | ✅ |
+| Dashboard 启动 | ✅ |
+
+**42 步训练总结：**
+- Phase 1 (steps 1-15): 小 batch debug (4p×1r=4), reward 0~0.35
+- Phase 2 (steps 16-42): 全 batch (48p×4r=192), mean reward=0.184, 轻微下行
+- 仅 step_10 checkpoint 被保存 (Phase 1)，Phase 2/3 检查点全部丢失
+
+**Checkpoint 评测 (step_10 vs baseline):**
+- 纠错率: 0.60 → 0.88 (**恶化 +0.28**，越高越差)
+- 直接通过: 32 → 9 (**-23**)
+- 10/11 类别退化，仅 logical reasoning 改善
+- **结论**: Qwen3-4B 容量不足 + Phase 1 早期检查点处于训练劣化阶段 + checkpoint 保存机制需修复
+
+**下阶段建议：**
+1. 修复 checkpoint 跨重启保存机制
+2. 升级到更大模型 (7B+)
+3. 缩小任务范围 (2-3 类别)
+4. 提高学习率 (1e-5+) 或加 warmup
+5. 每个 checkpoint 自动触发评测

@@ -66,6 +66,7 @@ class RewardBridge:
         self.rubric_weights = rubric_weights
         self.use_merged = use_merged
         self._rubrics: list | None = None
+        self._category_map: dict | None = None  # category → group mapping
 
     # ------------------------------------------------------------------
     # Rubric loading (lazy, cached)
@@ -82,29 +83,62 @@ class RewardBridge:
         rubrics = []
         with open(self.rubrics_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            for item in data:
+
+            # Load category→group mapping if present
+            if isinstance(data, dict) and "_category_to_group" in data:
+                self._category_map = data["_category_to_group"]
+
+            items = data.get("rubrics", data) if isinstance(data, dict) else data
+            if isinstance(items, dict):
+                items = []
+            for item in items:
                 r = Rubric.from_dict(item)
                 if r.状态 == "活跃":
                     rubrics.append(r)
 
         if self.max_rubrics and len(rubrics) > self.max_rubrics:
-            # Select diverse rubrics by source pattern diversity
-            seen_patterns = set()
-            selected = []
-            for r in rubrics:
-                if r.来源模式 not in seen_patterns:
-                    seen_patterns.add(r.来源模式)
-                    selected.append(r)
-            remaining = self.max_rubrics - len(selected)
-            if remaining > 0:
-                for r in rubrics:
-                    if r not in selected:
-                        selected.append(r)
-                        if len(selected) >= self.max_rubrics:
-                            break
-            rubrics = selected[:self.max_rubrics]
+            rubrics = self._select_diverse(rubrics, self.max_rubrics)
 
         logger.info("Loaded %d active rubrics from %s", len(rubrics), self.rubrics_path)
+        return rubrics
+
+    def _select_diverse(self, rubrics: list, max_n: int) -> list:
+        """Select diverse rubrics by source pattern diversity."""
+        seen_patterns = set()
+        selected = []
+        for r in rubrics:
+            if r.来源模式 not in seen_patterns:
+                seen_patterns.add(r.来源模式)
+                selected.append(r)
+        remaining = max_n - len(selected)
+        if remaining > 0:
+            for r in rubrics:
+                if r not in selected:
+                    selected.append(r)
+                    if len(selected) >= max_n:
+                        break
+        return selected[:max_n]
+
+    def _filter_by_category(self, rubrics: list, category: str) -> list:
+        """Filter rubrics to those matching the given category group."""
+        if not category or not self._category_map:
+            return rubrics
+
+        group = self._category_map.get(category, "")
+
+        matching = []
+        for r in rubrics:
+            r_cats = getattr(r, "适用类别", []) or []
+            r_group = getattr(r, "类别组", "") or ""
+            if category in r_cats or group == r_group:
+                matching.append(r)
+
+        if matching:
+            logger.info("Category '%s' (group='%s'): %d/%d rubrics matched",
+                        category, group, len(matching), len(rubrics))
+            return matching
+
+        logger.info("Category '%s': no matching rubrics, using all %d", category, len(rubrics))
         return rubrics
 
     @property
@@ -122,6 +156,7 @@ class RewardBridge:
         prompt: str,
         responses: list[str],
         reward_mode: str = "",
+        category: str = "",
     ) -> list[float]:
         """Score N responses against M rubrics, return N reward values.
 
@@ -132,6 +167,7 @@ class RewardBridge:
             prompt: Original user prompt.
             responses: N response texts from GRPO generation.
             reward_mode: "mean" / "total" / "pass_fail" (overrides init).
+            category: Prompt category for rubric filtering (e.g. "coding").
 
         Returns:
             List of N reward floats, suitable for GRPO rm_scores placement.
@@ -142,6 +178,9 @@ class RewardBridge:
         if not rubrics:
             logger.warning("No rubrics available — returning zero rewards")
             return [0.0] * len(responses)
+
+        # Filter rubrics by category if mapping available
+        rubrics = self._filter_by_category(rubrics, category)
 
         judge = JudgeExecutor(
             api_key=self.api_key,
@@ -170,11 +209,12 @@ class RewardBridge:
         prompt: str,
         responses: list[str],
         reward_mode: str = "",
+        category: str = "",
     ) -> list[RewardResult]:
         """Like score_responses but returns full scoring details."""
         from trainable_openclaw.evaluation.judge import JudgeExecutor
 
-        rubrics = self.rubrics
+        rubrics = self._filter_by_category(self.rubrics, category)
         judge = JudgeExecutor(
             api_key=self.api_key,
             base_url=self.base_url,

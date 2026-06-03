@@ -38,6 +38,8 @@ class Rubric:
     最后命中时间: float = 0.0
     状态: str = "活跃"  # "活跃" | "归档"
     创建时间: float = field(default_factory=time.time)
+    适用类别: list = field(default_factory=list)  # category filter for category-aware rubrics
+    类别组: str = ""  # category group name
 
     def to_dict(self) -> dict:
         return {
@@ -50,6 +52,8 @@ class Rubric:
             "最后命中时间": self.最后命中时间,
             "状态": self.状态,
             "创建时间": self.创建时间,
+            "适用类别": self.适用类别,
+            "类别组": self.类别组,
         }
 
     @classmethod

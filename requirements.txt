@@ -9,3 +9,5 @@ vllm==0.18.1
 modelscope
 orjson
 datasets>=3.0.0
+streamlit>=1.28
+pytest>=7.0.0
