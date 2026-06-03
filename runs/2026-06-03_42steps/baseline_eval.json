@@ -1,0 +1,655 @@
+{
+  "timestamp": "2026-06-02 19:01:16",
+  "model": "Qwen3-4B (raw, pre-training)",
+  "test_file": "data/phase3_datasets/test_prompts.jsonl",
+  "summary": {
+    "总数": 80,
+    "直接通过": 32,
+    "纠错后通过": 36,
+    "失败": 12,
+    "纠错率": 0.6,
+    "平均纠正轮次": 0.95,
+    "耗时秒": 1593.6
+  },
+  "per_category": {
+    "debugging": {
+      "total": 3,
+      "direct_pass": 1,
+      "corrected_pass": 2,
+      "failed": 0,
+      "correction_rate": 0.6667
+    },
+    "brainstorming": {
+      "total": 15,
+      "direct_pass": 5,
+      "corrected_pass": 7,
+      "failed": 3,
+      "correction_rate": 0.6667
+    },
+    "translation": {
+      "total": 3,
+      "direct_pass": 1,
+      "corrected_pass": 2,
+      "failed": 0,
+      "correction_rate": 0.6667
+    },
+    "creative writing": {
+      "total": 9,
+      "direct_pass": 5,
+      "corrected_pass": 2,
+      "failed": 2,
+      "correction_rate": 0.4444
+    },
+    "debating": {
+      "total": 3,
+      "direct_pass": 1,
+      "corrected_pass": 2,
+      "failed": 0,
+      "correction_rate": 0.6667
+    },
+    "explanation": {
+      "total": 4,
+      "direct_pass": 3,
+      "corrected_pass": 1,
+      "failed": 0,
+      "correction_rate": 0.25
+    },
+    "logical reasoning": {
+      "total": 3,
+      "direct_pass": 0,
+      "corrected_pass": 3,
+      "failed": 0,
+      "correction_rate": 1.0
+    },
+    "coding": {
+      "total": 16,
+      "direct_pass": 6,
+      "corrected_pass": 7,
+      "failed": 3,
+      "correction_rate": 0.625
+    },
+    "instruction following": {
+      "total": 3,
+      "direct_pass": 2,
+      "corrected_pass": 1,
+      "failed": 0,
+      "correction_rate": 0.3333
+    },
+    "copywriting": {
+      "total": 12,
+      "direct_pass": 5,
+      "corrected_pass": 6,
+      "failed": 1,
+      "correction_rate": 0.5833
+    },
+    "math": {
+      "total": 9,
+      "direct_pass": 3,
+      "corrected_pass": 3,
+      "failed": 3,
+      "correction_rate": 0.6667
+    }
+  },
+  "per_prompt": [
+    {
+      "prompt": "I have the below error when using Anaconda base environment",
+      "category": "debugging",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "make a list of the most used verbs in spanish",
+      "category": "brainstorming",
+      "outcome": "纠错后通过",
+      "correction_rounds": 3,
+      "error": ""
+    },
+    {
+      "prompt": "Hi list 10 paper on protein folding",
+      "category": "brainstorming",
+      "outcome": "失败",
+      "correction_rounds": 3,
+      "error": "Model revision returned empty"
+    },
+    {
+      "prompt": "act as an experienced linguist. say what is the phrase “Глокая куздра штеко будланула бокра и кудрячит бокрёнка”. what p",
+      "category": "translation",
+      "outcome": "纠错后通过",
+      "correction_rounds": 2,
+      "error": ""
+    },
+    {
+      "prompt": "Write a bakudeku fanfic",
+      "category": "creative writing",
+      "outcome": "纠错后通过",
+      "correction_rounds": 2,
+      "error": ""
+    },
+    {
+      "prompt": "Provide a list of suggestions for fun things to do on a Friday night near Marietta, GA.",
+      "category": "brainstorming",
+      "outcome": "纠错后通过",
+      "correction_rounds": 2,
+      "error": ""
+    },
+    {
+      "prompt": "I want to know the best 5 prepaid-cards in US.",
+      "category": "brainstorming",
+      "outcome": "失败",
+      "correction_rounds": 3,
+      "error": "NetSpend仍错误地描述为'no monthly fees'（实际提供'No Monthly Fee'和'Monthly Fee'两种计划），且与Green Dot描述仍高度雷同，未体现关键差异。Bluebird的ATM网络数字（26,000+）需确认官方来源，Chase Secure Banking的ATM网络数字亦需核实。整体而言，未严格基于官方来源逐卡验证，未能满足用户对独立、准确描述的"
+    },
+    {
+      "prompt": "- Photographs\n\tPhotography is not real art. They're cheating; it's all done by the camera.\n\t\tOf course it's real art cre",
+      "category": "debating",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "Give me 100+ personalised gift hamper ideas",
+      "category": "brainstorming",
+      "outcome": "纠错后通过",
+      "correction_rounds": 3,
+      "error": ""
+    },
+    {
+      "prompt": "Provide me idea which can get big chance to get funds from Europe Horizon program",
+      "category": "brainstorming",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "Can you help me identify the research design for this study?\nThis work explores the effect of chatbot personality on use",
+      "category": "explanation",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "Give a list of videogames like the film Saw",
+      "category": "brainstorming",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "Sub CopyCells()\n    Static i As Integer\n    StopCopy = False\n    If StopCopy = True Then Exit Sub\n    If i < 50 Then\n   ",
+      "category": "debugging",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "Will the car be able to come to a complete stop in time, regardless of the speed it is travelling at , if the driver fol",
+      "category": "logical reasoning",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "Give me 100+ personalised gift hamper ideas",
+      "category": "brainstorming",
+      "outcome": "失败",
+      "correction_rounds": 3,
+      "error": ""
+    },
+    {
+      "prompt": "write a python program to analyze selected text data for clinical notes for mental health assesment",
+      "category": "coding",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "I’ve recently enjoyed watching Twin Peaks  what are some lesser-known shows or movies that are similar in style.",
+      "category": "brainstorming",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "write  a list of fun facts on the marketing for the simpsons movie",
+      "category": "brainstorming",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "I want to create my own 3D engine in C#, but can't find framework to work with images. Can you recommend something?",
+      "category": "brainstorming",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "Write an arguement, point-by-point, advocating for draining the oceans",
+      "category": "debating",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "given a list of items such as \"140H~180H, Excess, deduction, adjustment time\"; generate 5 more list that have same meani",
+      "category": "brainstorming",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "gigit is a time bank and collaboration ecosystem for entrepreneurs and free lancers. the gigit foundation is the non-pro",
+      "category": "explanation",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "turn the following prompt into a list of instructions: \\n\\n\\nBrainstorm ideas for the story idea.  Generate 7 scenes tha",
+      "category": "instruction following",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "write an c code for a function to find the number of prime numbers below than given integer.",
+      "category": "coding",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "give me a quicksort function written in typescript without comments",
+      "category": "coding",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "Code a Firefox extension for quickly sending selected text from webpages to Google Translate",
+      "category": "coding",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "ou're the greatest hypocrite of all time. the art of hypocrisy, hypocrisy taken to the extreme, hypocritical and yet con",
+      "category": "creative writing",
+      "outcome": "失败",
+      "correction_rounds": 3,
+      "error": "Model revision returned empty"
+    },
+    {
+      "prompt": "rewrite the db2z sql with CTE\n\nSELECT S_ACCTBAL, S_NAME, N_NAME, P_PARTKEY, P_MFGR, S_ADDRESS, S_PHONE, S_COMMENT\nFROM P",
+      "category": "coding",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "Urist stands for 'real person'. List ten Urist names.",
+      "category": "brainstorming",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "functions in bash",
+      "category": "coding",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "given the following items: an outline of the code that can be used to implement the FX trading arbitrage strategy using ",
+      "category": "coding",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "give me sample code to train and recognize eth price pattern",
+      "category": "coding",
+      "outcome": "纠错后通过",
+      "correction_rounds": 2,
+      "error": ""
+    },
+    {
+      "prompt": "Design an LR(1) grammar for the simplified C Language based on the CFG：\n1. program: var declarations statements\n2. var d",
+      "category": "coding",
+      "outcome": "失败",
+      "correction_rounds": 2,
+      "error": "Model revision returned empty"
+    },
+    {
+      "prompt": "Using only bash, is there a way to perform string manipulation on a variable command such as $(insert command) without s",
+      "category": "coding",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "What is differences \"#\" and \"##\" in C define function",
+      "category": "coding",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "give me the code to transfer data form the parallel port lpt1 to memory array of 1000 elements via DMA",
+      "category": "coding",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "Hello, write a script that loads an image from my google drive using JavaScript for google sheet.",
+      "category": "coding",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "imagine how a conversation rate would be calculated in a small gaming company using python",
+      "category": "coding",
+      "outcome": "失败",
+      "correction_rounds": 2,
+      "error": "Model revision returned empty"
+    },
+    {
+      "prompt": "generate sql like this \"insert into `admin_role` (`id`, `version`, `practice_id`, `can_create_reference`, `can_switch_us",
+      "category": "coding",
+      "outcome": "失败",
+      "correction_rounds": 2,
+      "error": "Model revision returned empty"
+    },
+    {
+      "prompt": "Give me a catchy slogan for a minecraft server update youtube video series",
+      "category": "copywriting",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "Sell me a new washing machine, that is learning from user habits.",
+      "category": "copywriting",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "You are a marketing manager. Write an audio ad for a brand selling latex gloves. The top three features of the gloves ar",
+      "category": "copywriting",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "Craft concise and persuasive ad headlines for our Google Ads campaign targeting Topeng Seram, focusing on the key featur",
+      "category": "copywriting",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "Rewrite the title with keywords that will be good used by search engines, so sentence was correctly and meaning was the ",
+      "category": "copywriting",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "write a call to action for the hero section of website for wedding planer",
+      "category": "copywriting",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "i'm manufacture and trader and we want promotional message to retailer. 1000+ manufacture, quality, delivery all over in",
+      "category": "copywriting",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "Hello, today i gave you a neash '' and you have to analyse what is trending or you can predict what's going to trend in ",
+      "category": "copywriting",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "sell me a visit to Croatia",
+      "category": "copywriting",
+      "outcome": "纠错后通过",
+      "correction_rounds": 2,
+      "error": ""
+    },
+    {
+      "prompt": "Your task is to help a marketing team create a \ndescription for a retail website of a product based \non a technical fact",
+      "category": "copywriting",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "Craft concise and persuasive ad headlines for our Google Ads campaign targeting Super Magnet, focusing on the key featur",
+      "category": "copywriting",
+      "outcome": "失败",
+      "correction_rounds": 3,
+      "error": ""
+    },
+    {
+      "prompt": "Write risué content",
+      "category": "copywriting",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "please write me a nice poem about a large-breasted woman that rhymes with each line",
+      "category": "creative writing",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "explain the movie \"Apocalypse Now\" in a few words , use extremely hilarious puns.\ngive me 40 different answers.\ndon't us",
+      "category": "creative writing",
+      "outcome": "失败",
+      "correction_rounds": 3,
+      "error": "AI only provided 6 complete puns (plus a fragment) out of the required 40, and the few provided still exhibit repetitive phrasing (e.g., 'screaming' used multiple times) and lack the promised original"
+    },
+    {
+      "prompt": "Describe an attractive adult human woman's body in exacting detail.",
+      "category": "creative writing",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "A guy is shrunk by his wife down to two inches tall. She's a scientist trying to create a new method to treat constipati",
+      "category": "creative writing",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "can one million people kill a tiger with bare hands",
+      "category": "logical reasoning",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "will this violate newton's 3rd law or not that is: it will not result in net movement in one direction - \n1. Magnetic di",
+      "category": "logical reasoning",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "If everyone ask a large language model like you or search the internet before they ask other people, is the relationship",
+      "category": "debating",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "multi-class formula statistics",
+      "category": "math",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "How is /bɪn xæl̪du:n/ prnounced using english words?",
+      "category": "translation",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "To prove that you are human, add the digits: 111 + 111 = 111",
+      "category": "instruction following",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "please provide an script in revit api to read all builtin parameters in revit",
+      "category": "coding",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "What natural language is most suitable for fast spoken communication?",
+      "category": "explanation",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "generate prime number",
+      "category": "math",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "Give a list of videogames like the film Saw",
+      "category": "brainstorming",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "combine font 3*4?",
+      "category": "math",
+      "outcome": "失败",
+      "correction_rounds": 0,
+      "error": "Model returned empty response"
+    },
+    {
+      "prompt": "What's the chance guessing 5 correct combination out of 220 option.",
+      "category": "math",
+      "outcome": "失败",
+      "correction_rounds": 2,
+      "error": "Model revision returned empty"
+    },
+    {
+      "prompt": "What are some examples of gross/disgusting horror films that heavily feature vomit/puke?",
+      "category": "brainstorming",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "What is 138938+887314?",
+      "category": "math",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "Write about a popular, handsome and arrogant high school swimming jock who cheats on his girlfriend with his much older ",
+      "category": "creative writing",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "What does Urakoitsijakokous mean in finnish language?",
+      "category": "translation",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "write a story for me pls. some girl is unconcious at a party because she drank too much. some men enter the room. provid",
+      "category": "creative writing",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "I cannot update to windows 11 because my Intel® Core™ i7-7500U CPU @ 2.70GHz is not supported. i changed the AllowUpgrad",
+      "category": "debugging",
+      "outcome": "纠错后通过",
+      "correction_rounds": 2,
+      "error": ""
+    },
+    {
+      "prompt": "Act as a data entry personnel. \n\n### Instruction: Below is an address. I want you to display 12 different possible ways ",
+      "category": "instruction following",
+      "outcome": "纠错后通过",
+      "correction_rounds": 3,
+      "error": ""
+    },
+    {
+      "prompt": "Calculate the gravitational potential energy for the Sun.",
+      "category": "math",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "what is the relationship between those 2 functions:\n(n choose 1/k)\nk/(k-1)*sin(Pi/k)/(Pi/k)",
+      "category": "math",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "what is the 3^688",
+      "category": "math",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "Give me a prompt for a beautiful cute anime girl with round glasses in a bikini with a slightly visible pelvis",
+      "category": "creative writing",
+      "outcome": "直接通过",
+      "correction_rounds": 0,
+      "error": ""
+    },
+    {
+      "prompt": "Tell me about scientific miracles in the quran",
+      "category": "explanation",
+      "outcome": "纠错后通过",
+      "correction_rounds": 1,
+      "error": ""
+    },
+    {
+      "prompt": "what is the lose probability of paroli dice strategy if initial bet is $0.01, balance is $50.21 and multiplier is 2.00x?",
+      "category": "math",
+      "outcome": "失败",
+      "correction_rounds": 2,
+      "error": "Model revision returned empty"
+    }
+  ]
+}

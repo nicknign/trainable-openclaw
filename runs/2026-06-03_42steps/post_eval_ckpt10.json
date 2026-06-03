@@ -1,0 +1,94 @@
+{
+  "总数": 78,
+  "直接通过": 9,
+  "纠错后通过": 34,
+  "失败": 35,
+  "纠错率": 0.8846,
+  "平均纠正轮次": 2.04,
+  "耗时秒": 888.9,
+  "model": "Qwen3-4B + LoRA (checkpoint global_step_10)",
+  "timestamp": "2026-06-03 12:26:50",
+  "eval_time_seconds": 888.9,
+  "pre_纠错率": 0.6,
+  "Δ纠错率": 0.2846,
+  "baseline_timestamp": "2026-06-02 19:01:16",
+  "per_category": {
+    "debugging": {
+      "total": 3,
+      "direct_pass": 0,
+      "corrected_pass": 1,
+      "failed": 2,
+      "correction_rate": 1.0
+    },
+    "brainstorming": {
+      "total": 13,
+      "direct_pass": 0,
+      "corrected_pass": 2,
+      "failed": 11,
+      "correction_rate": 1.0
+    },
+    "translation": {
+      "total": 3,
+      "direct_pass": 0,
+      "corrected_pass": 2,
+      "failed": 1,
+      "correction_rate": 1.0
+    },
+    "creative writing": {
+      "total": 9,
+      "direct_pass": 3,
+      "corrected_pass": 3,
+      "failed": 3,
+      "correction_rate": 0.6667
+    },
+    "debating": {
+      "total": 3,
+      "direct_pass": 1,
+      "corrected_pass": 1,
+      "failed": 1,
+      "correction_rate": 0.6667
+    },
+    "explanation": {
+      "total": 4,
+      "direct_pass": 0,
+      "corrected_pass": 2,
+      "failed": 2,
+      "correction_rate": 1.0
+    },
+    "logical reasoning": {
+      "total": 3,
+      "direct_pass": 1,
+      "corrected_pass": 1,
+      "failed": 1,
+      "correction_rate": 0.6667
+    },
+    "coding": {
+      "total": 16,
+      "direct_pass": 1,
+      "corrected_pass": 10,
+      "failed": 5,
+      "correction_rate": 0.9375
+    },
+    "instruction following": {
+      "total": 3,
+      "direct_pass": 0,
+      "corrected_pass": 2,
+      "failed": 1,
+      "correction_rate": 1.0
+    },
+    "copywriting": {
+      "total": 12,
+      "direct_pass": 2,
+      "corrected_pass": 5,
+      "failed": 5,
+      "correction_rate": 0.8333
+    },
+    "math": {
+      "total": 9,
+      "direct_pass": 1,
+      "corrected_pass": 5,
+      "failed": 3,
+      "correction_rate": 0.8889
+    }
+  }
+}
