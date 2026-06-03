@@ -1,12 +1,12 @@
 # Trainable OpenClaw
 
-**生产级自进化AI助手引擎。**
+**自进化 LLM 推理引擎 — 从用户交互中学习，在空闲时自我改进。**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-green)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/Status-Early%20Development-orange)]()
+[![Status](https://img.shields.io/badge/Status-MVP-yellow)]()
 
-Trainable OpenClaw 让任何大语言模型成为一个**在使用中持续自我进化的智能体**。基于 [veRL](https://github.com/volcengine/verl) 作为推理引擎，持续收集真实用户的对话反馈，通过 LLM 自主生成的 Rubrics 自动评估回复质量，在服务空闲时进行 LoRA 微调——全部在单一部署中完成。
+Trainable OpenClaw 将 [veRL](https://github.com/volcengine/verl) 封装为可自我改进的推理服务。收集对话反馈，通过 LLM 自主生成的 Rubric 评估回复质量，在服务空闲时自动微调模型——全部在单一部署中完成。
 
 > [English](README.md) | **中文**
 
@@ -14,28 +14,24 @@ Trainable OpenClaw 让任何大语言模型成为一个**在使用中持续自�
 
 ## 解决什么问题
 
-通用大模型不会从使用中自我改进。每次犯错——生成有 bug 的代码、误解用户意图、重复同样的错误——都是被浪费的学习机会。现有的 RLHF 流程是离线的、批量的、和真实用户脱节的。
-
-## 我们的方案
-
-**在运行时闭环学习。** Trainable OpenClaw 把每一次用户交互变成训练信号：
+通用大模型不会从使用中进步。每次犯错都是被浪费的学习机会。Trainable OpenClaw 把这个环闭合：
 
 ```
-用户 → Agent → veRL引擎(推理) → 回复 → 用户
-                                        ↓
-                                  用户反馈收集
-                                        ↓
-                              LLM分析反馈模式
-                                        ↓
-                           LLM自主生成严格Rubrics
-                                        ↓
-                          Rubrics对输出打分 → 奖励信号
-                                        ↓
-                               空闲检测触发训练
-                                        ↓
-                          LoRA微调(veRL引擎)
-                                        ↓
-                          权重同步 → 切回推理服务
+用户请求 → veRL引擎(推理) → 回复 → 用户
+                                    ↓
+                              反馈收集与分析
+                                    ↓
+                          LLM自动归纳反馈模式
+                                    ↓
+                       LLM自主生成评分Rubric
+                                    ↓
+                     多答案打分 → 奖励信号
+                                    ↓
+                         空闲检测触发训练
+                                    ↓
+                      LoRA微调 (GRPO)
+                                    ↓
+                    权重同步 → 恢复推理
 ```
 
 ---
@@ -43,109 +39,69 @@ Trainable OpenClaw 让任何大语言模型成为一个**在使用中持续自�
 ## 架构
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                 Trainable OpenClaw                    │
-├───────────────┬──────────────┬──────────────────────┤
-│   API服务      │  评估流水线   │  训练编排器            │
-│  (FastAPI)    │              │                       │
-│               │              │                       │
-│  /v1/chat     │  反馈→       │  空闲检测 →            │
-│  /v1/health   │  Rubric→    │  训练调度 →            │
-│  /v1/stats    │  Judge→     │  LoRA →               │
-│               │  Reward     │  权重同步              │
-├───────────────┴──────────────┴──────────────────────┤
-│              veRL 引擎 (vLLM/SGLang)                 │
-│         推理模式 ◄────────────► 训练模式              │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                   Trainable OpenClaw                      │
+├────────────┬──────────────┬───────────────┬──────────────┤
+│  API服务    │  仿真流水线   │  评估流水线    │  训练编排     │
+│  (FastAPI) │              │               │              │
+│            │  用户模拟 →   │  反馈分析 →    │  空闲检测 →   │
+│  /v1/chat  │  纠错对话 →   │  Rubric生成 → │  GRPO训练 →  │
+│  /v1/health│  轨迹评估    │  Judge打分 →  │  权重同步     │
+│            │              │  Rubric演进   │              │
+├────────────┴──────────────┴───────────────┴──────────────┤
+│                veRL 引擎 (vLLM + FSDP)                    │
+│            推理模式 ◄──────────► 训练模式                  │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 核心特性
+## 当前状态（MVP — 2026年6月）
 
-- **自进化闭环** — 从每次对话中自动学习，无需人工标注
-- **LLM自主生成Rubrics** — 评分标准从用户反馈模式中自动归纳，不是预设死规则
-- **双模引擎** — 同一组GPU既做推理又做训练，空闲时自动切换（资源友好，单卡或AutoDL可跑）
-- **GRPO原生支持** — 多答案生成 + group-based advantage 计算，天然适配
-- **生产级设计** — 面向真实部署而非研究原型：结构化日志、健康检查、监控面板
-- **OpenAI兼容API** — 任何使用 chat completions 格式的应用可直接接入
+**框架代码全部完成并可运行。** 所有模块已开发、测试（154个单测全部通过）、并在远程 GPU 机器上用真实 API 端到端验证通过。
 
----
+### 已完成的模块
 
-## 工作流程
+| 模块 | 说明 | 测试 |
+|------|------|------|
+| API 服务 | OpenAI 兼容接口，WAL 日志记录 | 23 |
+| 训练编排器 | 空闲检测 → 自动触发 GRPO 训练，训练中返回 503 | 24 |
+| 仿真管线 | 5 种用户画像，多轮纠错对话，557 条训练对 | — |
+| 反馈分析 | LLM 从对话日志中识别错误模式 | — |
+| Rubric 生成 | LLM 从反馈中自动生成可量化评分标准 | — |
+| Judge 执行器 | 多 Rubric 合并评分，Ray actor 兼容 sync API | 真实API ✅ |
+| Rubric 演进 | 低分样本自动触发 Rubric 更新，过期归档 | 25 + 端到端 ✅ |
+| 评估指标 | Spearman / accuracy@k / 覆盖率 / 收敛检测 | 27 |
+| Pipeline | 训前评测 → 训练 → 训后评测 → Rubric 演进 CLI | 20 + GPU端到端 ✅ |
+| Dashboard | Streamlit 面板：模式/进度/Rubric/对话 | 6 |
 
-### 1. 服务与收集
-veRL 引擎运行在**推理模式**，通过 OpenAI 兼容 API 处理对话请求。每次对话按 session 和用户维度记录。
+### 尚未解决的问题
 
-### 2. 分析反馈
-LLM 阅读对话历史，识别**反馈模式**——用户持续抱怨什么、赞赏什么。
-
-### 3. 生成 Rubrics
-基于识别到的模式，LLM 自主创建**严格的、可量化的评分任务**。每条 Rubric 是一个精确的 prompt，包含明确的扣分规则（如："变量命名不符合 snake_case，每处扣2分"）。
-
-### 4. 打分与排名
-GRPO 训练时，系统对每个 prompt 生成 N 个候选回答。所有候选回答用生成的 Rubrics 分别打分，排名靠前的作为正样本。
-
-### 5. 空闲时训练
-当一段时间没有请求到达时，系统：
-- 将推理引擎休眠（释放 GPU 显存）
-- 用带评分的对话数据执行 LoRA 微调
-- 将更新后的权重同步回推理引擎
-- 以改进后的模型恢复推理服务
-
----
-
-## 为什么做这个项目？（与 agent-lightning 的差异化）
-
-微软的 [agent-lightning](https://github.com/microsoft/agent-lightning)（17K+ stars）是一个优秀的 Agent 训练框架。它用 LightningStore 中心枢纽支持任意 Agent 框架（LangChain、AutoGen、CrewAI、OpenAI SDK）和多种算法（RL、APO、SFT）。如果你已有 Agent 想训练 — 用它。
-
-Trainable OpenClaw 做了一个**根本性的架构选择差异**：
-
-| 维度 | agent-lightning | Trainable OpenClaw |
-|------|----------------|---------------------|
-| **核心范式** | 训练框架包裹 Agent | 自进化推理引擎 |
-| **推理引擎** | 外部（通过 LiteLLM 代理） | 内部（深度改造 veRL） |
-| **训练触发** | 算法驱动（显式循环） | 空闲驱动（后台自动） |
-| **引擎集成深度** | 浅层 — 向 vLLM 发 HTTP 请求 | 深层 — 控制 sleep/wake/weight-sync |
-| **代码量** | ~67 核心文件，多存储多算法 | ~6 核心模块，单一聚焦链路 |
-| **目标用户** | 训练 Agent 的研究者 | 运营进化中模型的服务提供者 |
-| **Agent 耦合** | Agent 代码在循环内运行 | Agent 是 API 的用户（解耦） |
-
-**核心洞察：** agent-lightning 把推理引擎当作黑盒服务 — 发 prompt、收 response。Trainable OpenClaw 把推理引擎当作**产品本身**。我们深入改造 veRL 的 hybrid engine：
-
-1. rollout replicas **保持唤醒**，直接服务用户请求（不走 proxy）
-2. 训练由**真实空闲检测**触发（无请求 → sleep replicas → 训练 → wake）
-3. 权重同步在**同一组 GPU worker** 上原地完成
-4. 用户只需调用**一个 HTTP 端点**，无需写 Agent 代码
-
-这让 Trainable OpenClaw 更像一个**越用越聪明的个性化推理服务**，而非一个你去提交 Agent 来训练的平台。
-
-### 什么时候用哪个？
-
-| 你的需求 | 用哪个 |
-|---------|--------|
-| "我想训练我的 Agent" | agent-lightning |
-| "我想要一个越用越聪明的推理服务" | Trainable OpenClaw |
+- **训练不收敛** — Qwen3-4B + GRPO，42 步训练 reward 震荡无上升趋势。checkpoint 评测确认模型退化（纠错率 0.60 → 0.88，越高越差）。大概率是 4B 容量不足，需要换 7B+ 模型。
+- **Checkpoint 跨重启丢失** — Phase 2/3 的检查点未能保存，仅 Phase 1 的 step_10 存留。
+- **S4 反思模块** — 分析 FAIL 轨迹根因、改进 User Sim 的策略尚未构建。
 
 ---
 
 ## 快速开始
 
-> **环境要求：** Python 3.10+, CUDA 12.4+, 1-8 GPUs（小模型单卡即可）
+> **环境要求：** Python 3.10+, CUDA 12.4+, 1-8 GPUs（单张 48GB 显卡可跑 Qwen3-4B）
 
 ```bash
-# 克隆仓库
-git clone https://github.com/your-org/trainable-openclaw.git
+git clone https://github.com/nicknign/trainable-openclaw.git
 cd trainable-openclaw
-
-# 安装依赖
 pip install -e .
-
-# 启动自进化推理服务
-bash scripts/run_serve_ppo.sh
 ```
 
-服务启动后处于推理模式。发送对话请求：
+### 1. 启动推理服务
+
+```bash
+bash scripts/start_train.sh
+```
+
+以 HYBRID 模式启动 veRL（vLLM + FSDP），LoRA rank=16。
+
+### 2. 发送对话请求
 
 ```bash
 curl -X POST http://localhost:8000/v1/chat/completions \
@@ -156,7 +112,31 @@ curl -X POST http://localhost:8000/v1/chat/completions \
   }'
 ```
 
-空闲5分钟后自动触发训练。访问 `http://localhost:8000/dashboard` 查看监控面板。
+### 3. 运行评测流水线
+
+```bash
+# 训前基线评测
+python -m trainable_openclaw.pipeline --eval-only --max-test-prompts 10
+
+# 生成训练配置
+python -m trainable_openclaw.pipeline --gen-config
+
+# 完整报告
+python -m trainable_openclaw.pipeline --output results.json
+```
+
+### 4. 启动 Dashboard
+
+```bash
+streamlit run scripts/dashboard.py
+```
+
+### 5. 运行测试
+
+```bash
+python -m pytest tests/ -v --ignore=tests/test_a1_integration.py --ignore=tests/test_a2_integration.py --ignore=tests/test_a3_integration.py
+# 154 通过
+```
 
 ---
 
@@ -164,52 +144,72 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 
 ```
 trainable-openclaw/
-├── trainable_openclaw/        # 核心Python包
-│   ├── server/                # FastAPI推理服务 (OpenAI兼容)
-│   ├── logging/               # 对话日志存储 (SQLite + CLI查看器)
-│   ├── training/              # 空闲检测与训练编排
-│   └── evaluation/            # Rubric生成与LLM打分 (Phase 2)
-├── configs/                   # 配置文件
-├── docs/                      # 文档、路线图与设计
-│   ├── roadmap.md             # 研发路线图
-│   └── code_guide.md          # 代码说明文档
-├── papers/                    # 参考论文
-├── tests/                     # 测试 (59个: 33 mock + 26 GPU)
-├── scripts/                   # 启动与工具脚本
-├── data/                      # 对话日志与数据集存储
-├── verl-main-0516/            # veRL参考实现
+├── trainable_openclaw/          # 核心包
+│   ├── server/api.py            # FastAPI 推理服务 (OpenAI 兼容)
+│   ├── server/__init__.py
+│   ├── logging/                 # 对话日志 (SQLite + WAL) + CLI 查看器
+│   ├── training/                # 空闲检测与训练编排
+│   ├── evaluation/              # 自进化评判系统
+│   │   ├── feedback.py          # B1: 反馈模式分析
+│   │   ├── rubric.py            # B2: Rubric 生成 + 持久化
+│   │   ├── rubric_engine.py     # B2: LLM 驱动 Rubric 流水线
+│   │   ├── rubric_evolver.py    # B4: 低分日志驱动自动演进
+│   │   ├── judge.py             # B3: 多 Rubric 合并评分执行器
+│   │   ├── trajectory_eval.py   # S3: 轨迹分级 + 数据导出
+│   │   ├── correction_rate.py   # D2: 纠错率评估器
+│   │   └── metrics.py           # S5: 评估指标体系
+│   └── pipeline.py              # C1: 主流水线编排器
+├── scripts/                     # 启动与工具脚本
+│   ├── start_train.sh           # serve_ppo 启动脚本
+│   ├── run_simulation.py        # User Sim 纠错对话管线
+│   ├── validate_modules.py      # 真实 API 验证 (judge + evolver + pipeline)
+│   ├── run_post_eval.py         # Checkpoint 纠错率评测
+│   ├── extract_lora.py          # FSDP checkpoint → LoRA 权重提取
+│   ├── convert_lora.py          # FSDP LoRA → PEFT/vLLM adapter 格式转换
+│   ├── analyze_run.py           # 训练日志解析 + 分析报告
+│   ├── dashboard.py             # Streamlit 监控面板
+│   └── chat.py                  # 交互式聊天 CLI
+├── docs/                        # 文档
+│   ├── roadmap.md               # 研发路线图
+│   ├── code_guide.md            # 代码说明
+│   └── validation_report.md     # 框架评测报告
+├── tests/                       # 154 个单测 (6 个文件)
+├── data/                        # 数据集 / Rubric / 对话数据库
+├── runs/                        # 训练日志存档
+├── verl-main-0516/              # 修改后的 veRL (serve_ppo + checkpoint + weight sync)
 └── requirements.txt
 ```
 
 ---
 
-## 路线图
+## 与 agent-lightning 的差异
 
-详细研发计划见 [docs/roadmap.md](docs/roadmap.md)。
+微软的 [agent-lightning](https://github.com/microsoft/agent-lightning) 是优秀的 Agent 训练框架。Trainable OpenClaw 做了一个不同的架构选择：
 
-**当前阶段（2026年5-6月）：** MVP —— 核心自进化闭环端到端跑通。
+| | agent-lightning | Trainable OpenClaw |
+|---|---|---|
+| **范式** | 训练框架包裹 Agent | 自进化推理引擎 |
+| **推理引擎** | 外部（LiteLLM 代理） | 内部（深度改造 veRL） |
+| **训练触发** | 算法驱动循环 | 空闲驱动（后台自动） |
+| **使用方式** | 写 Agent 代码接入 | 调 HTTP 接口即可 |
 
-| 阶段 | 状态 |
-|------|------|
-| Phase 0 — 论文调研与算法确定 | 进行中 |
-| Phase 1 — veRL双模引擎改造 | ✅ A1, A2, A3 完成 (59 测试) |
-| Phase 2 — 自进化评判系统 | 🟡 B0 完成, B1.2 进行中 |
-| Phase 3 — 集成与Dashboard | 待开始 |
-| Phase 4 — 测试集与效果评估 | 待开始 |
+**用 agent-lightning** — 如果你已有 Agent，想训练它。
+**用 Trainable OpenClaw** — 如果你想要一个越用越聪明的推理服务。
 
 ---
 
-## 参与贡献
+## 路线图
 
-Trainable OpenClaw 处于早期开发阶段，欢迎贡献！以下方向尤其需要帮助：
+详细计划见 [docs/roadmap.md](docs/roadmap.md)。
 
-- **算法研究** — 改进 GRPO reward 设计、Rubric 生成质量
-- **引擎后端** — 接入更多推理引擎（TensorRT-LLM, llama.cpp 等）
-- **Agent连接器** — 对接更多 chatbot 框架
-- **评估** — Rubric 质量与人工判断的对齐评测
-- **文档** — 教程、部署指南、最佳实践
-
-贡献指南（CONTRIBUTING.md）即将上线。
+| 阶段 | 状态 |
+|------|------|
+| Phase 0 — 论文调研与算法确定 | 背景持续 |
+| Phase 1 — veRL 双模引擎改造 | ✅ A1+A2+A3 完成 |
+| Phase 1.5 — 数据工程与仿真 | ✅ S1+S2+S3+S5 完成，S4 待做 |
+| Phase 2 — 自进化评判系统 | ✅ B0+B1+B2+B3+B4 完成 |
+| Phase 3 — 集成与 Dashboard | ✅ C1+C2 完成 |
+| Phase 4 — 效果评估 | 🟡 D1+D2 完成，D3 远期 |
 
 ---
 
@@ -221,13 +221,9 @@ Trainable OpenClaw 处于早期开发阶段，欢迎贡献！以下方向尤其�
 
 ## 致谢
 
-本项目站在巨人的肩膀上，特别致谢以下开源项目：
-
-- **[veRL](https://github.com/volcengine/verl)** — 字节跳动火山引擎的大模型强化学习框架，提供核心训练与推理基础设施
-- **[vLLM](https://github.com/vllm-project/vllm)** — 高吞吐量LLM推理引擎，支撑推理后端
-- **[Megatron-LM](https://github.com/NVIDIA/Megatron-LM)** — NVIDIA大规模Transformer训练框架，实现高效分布式训练
-- **[SGLang](https://github.com/sgl-project/sglang)** — 结构化生成语言，作为备选推理后端
-- **[DeepSeek](https://github.com/deepseek-ai)** — 提供 DeepSeek-Flash 及开源模型生态
-- **[PyTorch](https://github.com/pytorch/pytorch)** — 深度学习基础框架
-- **[FastAPI](https://github.com/tiangolo/fastapi)** — 现代API框架，支撑服务层
-- **[Ray](https://github.com/ray-project/ray)** — 分布式计算框架，实现多GPU扩展
+- **[veRL](https://github.com/volcengine/verl)** — 核心训练与推理基础设施
+- **[vLLM](https://github.com/vllm-project/vllm)** — 高吞吐量 LLM 推理
+- **[DeepSeek](https://github.com/deepseek-ai)** — Judge 模型 (deepseek-v4-flash)
+- **[FastAPI](https://github.com/tiangolo/fastapi)** — API 服务层
+- **[Ray](https://github.com/ray-project/ray)** — 分布式计算
+- **[PyTorch](https://github.com/pytorch/pytorch)** — 深度学习框架

@@ -1,41 +1,37 @@
 # Trainable OpenClaw
 
-**A production-grade self-evolving AI assistant engine.**
+**A self-evolving LLM inference engine — learns from user interactions, improves during idle time.**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-green)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/Status-Early%20Development-orange)]()
+[![Status](https://img.shields.io/badge/Status-MVP-yellow)]()
 
-Trainable OpenClaw turns any LLM into a **self-improving agent** that learns from real user interactions. It wraps [veRL](https://github.com/volcengine/verl) as the inference engine, continuously collects conversation feedback, evaluates quality via LLM-generated rubrics, and fine-tunes the model during idle time — all in a single deployment.
+Trainable OpenClaw wraps [veRL](https://github.com/volcengine/verl) into a self-improving inference service. It collects conversation feedback, evaluates quality via LLM-generated rubrics, and fine-tunes the model during idle time — all in a single deployment.
 
 > **English** | [中文](README_zh.md)
 
 ---
 
-## The Problem
+## What It Does
 
-General-purpose LLMs don't improve from usage. Every mistake they make — generating buggy code, misunderstanding context, repeating the same errors — is a lost learning opportunity. Existing RLHF pipelines are batch, offline, and disconnected from real users.
-
-## Our Approach
-
-**Close the loop at runtime.** Trainable OpenClaw turns every user interaction into a training signal:
+General-purpose LLMs don't improve from usage. Every mistake is a lost learning opportunity. Trainable OpenClaw closes this loop:
 
 ```
-User → Agent → veRL Engine (Inference) → Response → User
-                                                    ↓
-                                            User Feedback
-                                                    ↓
-                                     LLM Analyzes Feedback Patterns
-                                                    ↓
-                                   LLM Generates Strict Scoring Rubrics
-                                                    ↓
-                              Rubrics Score Model Outputs → Reward Signal
-                                                    ↓
-                                           Idle Detection Triggers
-                                                    ↓
-                                LoRA Fine-tuning on veRL Engine
-                                                    ↓
-                                    Weights Synced → Back to Serving
+User Request → veRL Engine (Inference) → Response → User
+                                                  ↓
+                                          Feedback Collection
+                                                  ↓
+                                    LLM Analyzes Feedback Patterns
+                                                  ↓
+                              LLM Generates Scoring Rubrics
+                                                  ↓
+                          Multi-answer Scoring → Reward Signal
+                                                  ↓
+                                    Idle Detection Triggers
+                                                  ↓
+                              LoRA Fine-tuning (GRPO)
+                                                  ↓
+                           Weight Sync → Back to Serving
 ```
 
 ---
@@ -43,109 +39,70 @@ User → Agent → veRL Engine (Inference) → Response → User
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                 Trainable OpenClaw                    │
-├───────────────┬──────────────┬──────────────────────┤
-│  API Server   │  Evaluation  │  Training Orchestrator│
-│  (FastAPI)    │  Pipeline    │                       │
-│               │              │                       │
-│  /v1/chat     │  Feedback→   │  IdleDetector →       │
-│  /v1/health   │  Rubric→     │  TrainScheduler →     │
-│  /v1/stats    │  Judge→      │  LoRA →               │
-│               │  Reward      │  WeightSync           │
-├───────────────┴──────────────┴──────────────────────┤
-│              veRL Engine (vLLM/SGLang)               │
-│         Serving Mode ◄────────► Training Mode        │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                   Trainable OpenClaw                      │
+├────────────┬──────────────┬───────────────┬──────────────┤
+│  API Server│  Simulation  │  Evaluation   │  Training    │
+│  (FastAPI) │  Pipeline    │  Pipeline     │  Orchestrator│
+│            │              │               │              │
+│  /v1/chat  │  User Sim →  │  Feedback →   │  IdleDetect →│
+│  /v1/health│  Correction →│  Rubric →     │  GRPO Train →│
+│            │  Trajectory  │  Judge →      │  Weight Sync │
+│            │              │  Evolve       │              │
+├────────────┴──────────────┴───────────────┴──────────────┤
+│                veRL Engine (vLLM + FSDP)                  │
+│            Serving Mode ◄──────────► Training Mode        │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Key Features
+## Current Status (MVP — June 2026)
 
-- **Self-Evolving Loop** — Learns from every conversation automatically, no manual annotation needed
-- **LLM-Generated Rubrics** — Scoring criteria emerge from user feedback patterns, not hardcoded rules
-- **Dual-Mode Engine** — Same GPUs serve inference AND train, switching during idle periods (resource-friendly, runs on a single GPU or AutoDL)
-- **GRPO-Ready** — Native support for multi-answer generation and group-based advantage computation
-- **Production Grade** — Designed for real deployment, not research prototyping: structured logging, health checks, monitoring dashboard
-- **OpenAI-Compatible API** — Drop-in replacement for any app using the chat completions format
+**The framework is complete and functional.** All modules have been built, tested (154 tests), and verified end-to-end with real API calls on a remote GPU machine.
 
----
+### What works
 
-## How It Works
+| Module | Description | Tests |
+|--------|-------------|-------|
+| API Server | OpenAI-compatible chat endpoint, WAL-logged conversations | 23 |
+| Orchestrator | Idle detection → auto trigger GRPO training, 503 during training | 24 |
+| Simulation | 5 user personas, multi-turn correction dialogues, 557 training pairs | — |
+| Feedback Analyzer | LLM identifies error patterns from conversation logs | — |
+| Rubric Generator | LLM generates quantifiable scoring rubrics from feedback | — |
+| Judge Executor | Multi-rubric scoring with merged API calls, sync API for Ray | real-API ✅ |
+| Rubric Evolver | Auto-evolve rubrics from low-score samples, archive stale ones | 25 + e2e ✅ |
+| Metrics | Spearman, accuracy@k, coverage, convergence tracking | 27 |
+| Pipeline | Pre-eval → Training → Post-eval → Rubric evolution CLI | 20 + GPU e2e ✅ |
+| Dashboard | Streamlit panel: mode, progress, rubrics, conversations | 6 |
 
-### 1. Serve & Collect
-The veRL engine runs in **serving mode**, handling chat requests via an OpenAI-compatible API. Every conversation is logged with session and user metadata.
+### What doesn't work yet
 
-### 2. Analyze Feedback
-An LLM reads through conversation histories and identifies **feedback patterns** — what users consistently complain about or praise.
-
-### 3. Generate Rubrics
-Based on identified patterns, the LLM autonomously creates **strict, quantifiable scoring rubrics**. Each rubric is a precise prompt with explicit deduction rules (e.g., "Deduct 2 points for each PEP8 naming violation").
-
-### 4. Score & Rank
-For GRPO training, the system generates N candidate responses per prompt. All responses are scored against the generated rubrics. The best response wins.
-
-### 5. Train During Idle Time
-When no requests arrive for a configurable timeout, the system:
-- Puts inference engines to sleep (frees GPU memory)
-- Runs LoRA fine-tuning using the scored conversation data
-- Syncs updated weights back to the inference engines
-- Resumes serving with the improved model
-
----
-
-## Why a New Project? (vs. agent-lightning)
-
-Microsoft's [agent-lightning](https://github.com/microsoft/agent-lightning) (17K+ stars) is an excellent framework for training AI agents with RL. It wraps ANY agent framework (LangChain, AutoGen, CrewAI, OpenAI SDK) and supports multiple algorithms (RL, APO, SFT) via a central "LightningStore." If you have an existing agent and want to train it — use agent-lightning.
-
-Trainable OpenClaw takes a **fundamentally different architectural bet**:
-
-| Dimension | agent-lightning | Trainable OpenClaw |
-|-----------|----------------|---------------------|
-| **Core paradigm** | Training framework that wraps agents | Self-evolving inference engine |
-| **Inference engine** | External (proxied via LiteLLM) | Internal (deeply modified veRL) |
-| **Training trigger** | Algorithm-driven (explicit loop) | Idle-driven (background automatic) |
-| **Engine integration** | Shallow — sends HTTP requests to vLLM | Deep — controls sleep/wake/weight-sync at engine level |
-| **Code footprint** | ~67 core files, multi-store, multi-algo | ~6 core modules, single focused pipeline |
-| **Target user** | Researcher training an agent | Service operator running an evolving model |
-| **Agent coupling** | Agent code runs in the loop | Agent is the user of the API (decoupled) |
-
-**The key insight:** agent-lightning treats the inference engine as a black-box service — it sends prompts and reads responses. Trainable OpenClaw treats the inference engine as the **product itself**. We modify veRL's hybrid engine so that:
-
-1. The rollout replicas **stay awake** and serve user requests directly (not through a proxy)
-2. Training is triggered by **real idle detection** (no requests → sleep replicas → train → wake)
-3. Weight synchronization happens **in-place** on the same GPU workers
-4. Users interact with **a single HTTP endpoint** — they don't need to write agent code
-
-This makes Trainable OpenClaw more like a **personalized inference service** that quietly improves from usage, rather than a training framework you bring your agent to.
-
-### When to use which?
-
-| Your need | Use |
-|-----------|-----|
-| "I want to train my agent" | agent-lightning |
-| "I want an inference service that gets smarter over time" | Trainable OpenClaw |
+- **Training convergence** — Qwen3-4B + GRPO showed reward oscillation with no upward trend over 42 steps. A checkpoint evaluation confirmed degradation (correction rate 0.60 → 0.88). Likely a capacity issue — needs 7B+ model.
+- **Checkpoint persistence across restarts** — Phase 2/3 checkpoints were lost, only Phase 1 step_10 survived.
+- **S4 Reflection module** — Analyzing FAIL trajectories to improve the User Sim hasn't been built yet.
 
 ---
 
 ## Quick Start
 
-> **Prerequisites:** Python 3.10+, CUDA 12.4+, 1-8 GPUs (single GPU works for small models)
+> **Prerequisites:** Python 3.10+, CUDA 12.4+, 1-8 GPUs (single 48GB GPU works for Qwen3-4B)
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/trainable-openclaw.git
+git clone https://github.com/nicknign/trainable-openclaw.git
 cd trainable-openclaw
-
-# Install dependencies
 pip install -e .
-
-# Start the self-evolving inference server
-bash scripts/run_serve_ppo.sh
 ```
 
-The server starts in serving mode. Send a chat request:
+### 1. Start the inference server
+
+```bash
+bash scripts/start_train.sh
+```
+
+This starts veRL in HYBRID mode (vLLM + FSDP) with LoRA rank=16.
+
+### 2. Send a chat request
 
 ```bash
 curl -X POST http://localhost:8000/v1/chat/completions \
@@ -156,7 +113,31 @@ curl -X POST http://localhost:8000/v1/chat/completions \
   }'
 ```
 
-When idle for 5 minutes, training kicks in automatically. Check the dashboard at `http://localhost:8000/dashboard`.
+### 3. Run evaluation pipeline
+
+```bash
+# Pre-training baseline
+python -m trainable_openclaw.pipeline --eval-only --max-test-prompts 10
+
+# Generate training config
+python -m trainable_openclaw.pipeline --gen-config
+
+# Full pipeline report
+python -m trainable_openclaw.pipeline --output results.json
+```
+
+### 4. Dashboard
+
+```bash
+streamlit run scripts/dashboard.py
+```
+
+### 5. Run tests
+
+```bash
+python -m pytest tests/ -v --ignore=tests/test_a1_integration.py --ignore=tests/test_a2_integration.py --ignore=tests/test_a3_integration.py
+# 154 passed
+```
 
 ---
 
@@ -164,52 +145,72 @@ When idle for 5 minutes, training kicks in automatically. Check the dashboard at
 
 ```
 trainable-openclaw/
-├── trainable_openclaw/        # Core Python package
-│   ├── server/                # FastAPI inference server (OpenAI-compatible)
-│   ├── logging/               # Conversation log store (SQLite + CLI viewer)
-│   ├── training/              # Idle detection & training orchestration
-│   └── evaluation/            # Rubric generation & LLM judge (Phase 2)
-├── configs/                   # Configuration files
-├── docs/                      # Documentation, roadmap & design docs
-│   ├── roadmap.md             # Development roadmap
-│   └── code_guide.md          # Detailed code documentation
-├── papers/                    # Research papers reference
-├── tests/                     # Test suite (59 tests: 33 mock + 26 GPU)
-├── scripts/                   # Startup & utility scripts
-├── data/                      # Conversation logs & dataset storage
-├── verl-main-0516/            # veRL reference implementation
+├── trainable_openclaw/          # Core Python package
+│   ├── server/api.py            # FastAPI inference server (OpenAI-compatible)
+│   ├── server/__init__.py
+│   ├── logging/                 # Conversation store (SQLite + WAL) + CLI viewer
+│   ├── training/                # Idle detection & training orchestration
+│   ├── evaluation/              # Self-evolving evaluation system
+│   │   ├── feedback.py          # B1: Feedback pattern analysis
+│   │   ├── rubric.py            # B2: Rubric generation + store
+│   │   ├── rubric_engine.py     # B2: LLM-driven rubric pipeline
+│   │   ├── rubric_evolver.py    # B4: Auto-evolution from low-score logs
+│   │   ├── judge.py             # B3: Multi-rubric scoring executor
+│   │   ├── trajectory_eval.py   # S3: Trajectory grading + data export
+│   │   ├── correction_rate.py   # D2: Correction rate evaluator
+│   │   └── metrics.py           # S5: Evaluation metrics
+│   └── pipeline.py              # C1: Main pipeline orchestrator
+├── scripts/                     # Startup & utility scripts
+│   ├── start_train.sh           # serve_ppo startup
+│   ├── run_simulation.py        # User Sim correction dialogue pipeline
+│   ├── validate_modules.py      # Real API validation (judge + evolver + pipeline)
+│   ├── run_post_eval.py         # Checkpoint correction rate evaluation
+│   ├── extract_lora.py          # FSDP checkpoint → LoRA weights
+│   ├── convert_lora.py          # FSDP LoRA → PEFT/vLLM adapter format
+│   ├── analyze_run.py           # Training log parser + analysis report
+│   ├── dashboard.py             # Streamlit monitoring dashboard
+│   └── chat.py                  # Interactive chat CLI
+├── docs/                        # Documentation
+│   ├── roadmap.md               # Development roadmap
+│   ├── code_guide.md            # Code documentation
+│   └── validation_report.md     # Framework validation report
+├── tests/                       # 154 tests across 6 files
+├── data/                        # Datasets, rubrics, conversation DB
+├── runs/                        # Training run archives
+├── verl-main-0516/              # Modified veRL (serve_ppo + checkpoint + weight sync)
 └── requirements.txt
 ```
 
 ---
 
-## Roadmap
+## How It Compares to agent-lightning
 
-See [docs/roadmap.md](docs/roadmap.md) for the detailed development plan.
+Microsoft's [agent-lightning](https://github.com/microsoft/agent-lightning) is an excellent framework for training AI agents with RL. Trainable OpenClaw makes a different architectural choice:
 
-**Current phase (May–June 2026):** MVP — core self-evolving loop working end-to-end.
+| | agent-lightning | Trainable OpenClaw |
+|---|---|---|
+| **Paradigm** | Training framework wrapping agents | Self-evolving inference engine |
+| **Engine** | External (proxied via LiteLLM) | Internal (deeply modified veRL) |
+| **Training trigger** | Algorithm-driven loop | Idle-driven (background automatic) |
+| **User model** | You bring agent code | You call an HTTP endpoint |
 
-| Phase | Status |
-|-------|--------|
-| Phase 0 — Paper survey & algorithm design | In progress |
-| Phase 1 — veRL dual-mode engine | ✅ A1, A2, A3 complete (59 tests) |
-| Phase 2 — Self-evolving evaluation system | 🟡 B0 complete, B1.2 in progress |
-| Phase 3 — Integration & dashboard | Pending |
-| Phase 4 — Benchmark & evaluation | Pending |
+**Use agent-lightning** if you have an agent and want to train it.
+**Use Trainable OpenClaw** if you want an inference service that gets smarter over time.
 
 ---
 
-## Contributing
+## Roadmap
 
-Trainable OpenClaw is in early development. We welcome contributions! Areas where help is especially valuable:
+See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
-- **Algorithm research** — improving GRPO reward design, rubric generation quality
-- **Engine backends** — adding support for more inference engines (TensorRT-LLM, llama.cpp)
-- **Agent connectors** — integrating with more chatbot frameworks
-- **Evaluation** — benchmarking rubric quality against human judgment
-- **Documentation** — tutorials, deployment guides, best practices
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines (coming soon).
+| Phase | Status |
+|-------|--------|
+| Phase 0 — Paper survey & algorithm design | Background ongoing |
+| Phase 1 — veRL dual-mode engine | ✅ A1+A2+A3 complete |
+| Phase 1.5 — Data engineering & simulation | ✅ S1+S2+S3+S5 complete, S4 pending |
+| Phase 2 — Self-evolving evaluation | ✅ B0+B1+B2+B3+B4 complete |
+| Phase 3 — Integration & dashboard | ✅ C1+C2 complete |
+| Phase 4 — Evaluation | 🟡 D1+D2 complete, D3 deferred |
 
 ---
 
@@ -221,13 +222,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines (coming soon).
 
 ## Acknowledgments
 
-This project stands on the shoulders of giants. Special thanks to:
-
-- **[veRL](https://github.com/volcengine/verl)** — Volcano Engine's reinforcement learning framework for LLMs, providing the core training and rollout infrastructure
-- **[vLLM](https://github.com/vllm-project/vllm)** — High-throughput LLM serving engine, powering the inference backend
-- **[Megatron-LM](https://github.com/NVIDIA/Megatron-LM)** — NVIDIA's large-scale transformer training framework, enabling efficient distributed training
-- **[SGLang](https://github.com/sgl-project/sglang)** — Structured generation language for LLMs, supported as an alternative inference backend
-- **[DeepSeek](https://github.com/deepseek-ai)** — For DeepSeek-Flash and the open-source model ecosystem
-- **[PyTorch](https://github.com/pytorch/pytorch)** — The foundational deep learning framework
-- **[FastAPI](https://github.com/tiangolo/fastapi)** — Modern API framework powering the serving layer
-- **[Ray](https://github.com/ray-project/ray)** — Distributed computing framework for scaling across GPUs
+- **[veRL](https://github.com/volcengine/verl)** — Core training & inference infrastructure
+- **[vLLM](https://github.com/vllm-project/vllm)** — High-throughput LLM serving
+- **[DeepSeek](https://github.com/deepseek-ai)** — Judge model (deepseek-v4-flash)
+- **[FastAPI](https://github.com/tiangolo/fastapi)** — API serving layer
+- **[Ray](https://github.com/ray-project/ray)** — Distributed computing
+- **[PyTorch](https://github.com/pytorch/pytorch)** — Deep learning framework
