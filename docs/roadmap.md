@@ -2,28 +2,35 @@
 
 ## 项目目标
 
-打造一个**自进化 AI 助手引擎**。核心闭环：
+打造一个**自进化 AI 助手引擎**。让 AI 助手在使用中持续改进——更好的工具选择、更少的无效步骤、更准确的任务完成。
 
 ```
-用户请求 → veRL引擎推理 → 回复用户
-               ↓
-        对话日志存储
-               ↓
-    LLM分析用户反馈模式 → LLM自主生成Rubrics
-               ↓
-     Rubrics对GRPO多答案打分 → 构造训练样本
-               ↓
-     空闲检测 → 触发LoRA训练 → 权重同步 → 恢复推理
-               ↓
-     新反馈 → Rubrics持续演进 → 模型持续进化
+用户请求 → Agent (nanobot/open-claw) → 多轮交互 → 完成任务
+                                                    ↓
+                                              对话日志存储
+                                                    ↓
+                                      LLM 分析 Agent 行为模式
+                                                    ↓
+                                    LLM 自主生成 Agent Rubrics
+                                       (工具选择 / 步骤效率 /
+                                        错误恢复 / 信息充分性)
+                                                    ↓
+                                    Rubrics 对 rollout 轨迹打分
+                                                    ↓
+                                    空闲检测 → GRPO 训练
+                                                    ↓
+                                    权重同步 → 恢复服务
+                                                    ↓
+                          Agent 能力持续进化 (skill improvement)
 ```
+
+---
 
 ## 原则
 
 - **单线程推进** — 一个人开发，严格串行
-- **直接改 veRL 源码，不写 mock** — 深度改造，mock 没有意义
+- **先简单实现，再复杂优化** — nanobot (轻量) → open-claw (生产级)
 - **每步可独立验证** — 写完 → Linux 验证通过 → 再下一步
-- **先简单实现，再复杂优化** — 每步只做最小可用版本
 
 ---
 
@@ -33,10 +40,11 @@
 |------|------|------|
 | Phase 0 | 论文调研与算法确定 | 背景持续 |
 | Phase 1 | veRL 双模引擎改造 | ✅ 完成 |
-| Phase 1.5 | 数据工程与模拟测试环境 | 🟡 S4/S6 待做 |
+| Phase 1.5 | 数据工程与模拟测试环境 | 🟡 S4 待做 |
 | Phase 2 | 自进化评判系统 | ✅ 完成 |
 | Phase 3 | 集成与 Dashboard | ✅ 完成 |
-| Phase 4 | 生产环境评估 | 🟡 D3 远期 |
+| **Phase 4** | **Agent 引擎集成** | **⬜ 新阶段** |
+| Phase 5 | 生产环境评估 | 🟡 D3 远期 |
 
 ---
 
@@ -48,53 +56,56 @@
 | 0.2 | LLM-as-Judge 调研 | ⬜ | | 背景持续 |
 | 0.3 | GRPO/RL 算法调研 | ⬜ | | 背景持续 |
 | 0.4 | 算法方向确定 | ⬜ | | 背景持续 |
-| A1 | Rollout API Server | ✅ | 05-22 | FastAPI + vLLM Qwen3-4B, OpenAI 兼容 |
-| A2 | 空闲检测 + 训练触发 | ✅ | 05-22 | orchestrator + idle_timeout + min_samples |
-| A3 | 权重同步 + GRPO 训练 | ✅ | 05-25 | CheckpointEngineManager + GRPO 闭环 |
-| B0 | 对话日志系统 | ✅ | 05-29 | SQLite + WAL, sessions/messages 双表, CLI viewer |
-| S1 | LMSYS 种子数据抽取 | ✅ | 05-29 | 3200 prompts, 32 类别, 均衡分布 |
-| S2 | 用户模拟 + 纠错交互生成 | ✅ | 06-02 | 500 seeds → 557 训练对 + 80 测试对, 11 类别 |
-| S3 | 轨迹评估与数据导出 | ✅ | 05-30 | 分级 + 格式化 → 训练对 / rubric 种子 |
-| S4 | 反思与持续优化 | ⬜ | | Reflection → 更新 prompts → FAIL 率下降 |
-| S5 | 评估指标体系 | ✅ | 06-03 | metrics.py, 27 tests, 4 个 dataclass |
-| S6 | Agent 框架适配调研 | ⬜ | | open-claw / harness 对话格式与日志结构 |
-| B1 | 用户反馈收集与分析 | ✅ | 05-30 | LLM 分析 7 模式 + simple 模式 14 维度 |
-| B2 | LLM 自主生成 Rubrics | ✅ | 05-31 | 8 条动态 category-aware rubric |
-| B3 | Rubric 执行器 (Judge) | ✅ | 06-03 | Sync API + merged scoring + 真实 API 验证 |
-| B4 | Rubric 持续演进 | ✅ | 06-03 | rubric_evolver.py, 25 tests, 远程 e2e |
-| C1 | 主循环串联 (Pipeline) | ✅ | 06-03 | pipeline.py, 20 tests, GPU e2e, CLI 三种模式 |
-| C2 | Dashboard | ✅ | 06-03 | dashboard.py, 6 tests, Streamlit 启动验证 |
-| D1 | 测试集构建 | ✅ | 06-02 | 80 test prompts, 11 类别, train/test 零重叠 |
-| D2 | 效果评估体系 | ✅ | 06-03 | baseline + post-eval ckpt10 对比完成 |
-| D3 | 持续改进闭环 | ⬜ | | 远期 (Phase 4) |
+| A1 | Rollout API Server | ✅ | 05-22 | FastAPI + vLLM, OpenAI 兼容 |
+| A2 | 空闲检测 + 训练触发 | ✅ | 05-22 | orchestrator |
+| A3 | 权重同步 + GRPO 训练 | ✅ | 05-25 | CheckpointEngineManager |
+| B0 | 对话日志系统 | ✅ | 05-29 | SQLite + WAL |
+| S1 | LMSYS 种子数据抽取 | ✅ | 05-29 | 3200 prompts |
+| S2 | 用户模拟 + 纠错交互生成 | ✅ | 06-02 | 557 训练对 |
+| S3 | 轨迹评估与数据导出 | ✅ | 05-30 | 分级 + 格式化 |
+| S4 | 反思与持续优化 | ⬜ | | Reflection → FAIL 率下降 |
+| S5 | 评估指标体系 | ✅ | 06-03 | metrics.py (27 tests) |
+| B1 | 用户反馈收集与分析 | ✅ | 05-30 | 7 模式 + 14 维度 |
+| B2 | LLM 自主生成 Rubrics | ✅ | 05-31 | 8 条动态 rubric |
+| B3 | Rubric 执行器 (Judge) | ✅ | 06-03 | Sync + merged scoring |
+| B4 | Rubric 持续演进 | ✅ | 06-03 | evolver (25 tests) |
+| C1 | 主循环串联 (Pipeline) | ✅ | 06-03 | pipeline.py (20 tests) |
+| C2 | Dashboard | ✅ | 06-03 | Streamlit (6 tests) |
+| **T1** | **nanobot 调研与集成** | ⬜ | | 轻量 Agent 框架跑通 |
+| **T2** | **Agent rollout 训练适配** | ⬜ | | veRL 多轮 Agent 轨迹生成 |
+| **T3** | **Agent 场景 Judge 扩展** | ⬜ | | 工具选择/步骤效率/错误恢复评判 |
+| **T4** | **open-claw 迁移** | ⬜ | | 生产级 Agent 框架切换 |
+| D1 | 测试集构建 | ✅ | 06-02 | 80 test prompts |
+| D2 | 效果评估体系 | ✅ | 06-03 | baseline + post-eval |
+| D3 | 持续改进闭环 | ⬜ | | 远期 |
 
 ---
 
 ## Phase 0 — 论文调研与算法确定
 
-背景持续，与开发重叠。待研究：
+背景持续，与开发重叠。
 
-- **0.1 自进化 Agent**: Self-Rewarding, SPIN, Self-Play, Constitutional AI 等方案对比
-- **0.2 LLM-as-Judge**: position bias, verbosity bias, pairwise vs pointwise, 与人工评估对齐
-- **0.3 GRPO/RL 算法**: GRPO vs PPO vs DPO, outcome reward vs process reward
-- **0.4 算法方向确定**: 综合调研结论 → `docs/design/algorithm.md`
+- **0.1 自进化 Agent**: Self-Rewarding, SPIN, Self-Play, Constitutional AI
+- **0.2 LLM-as-Judge**: bias 分析, pairwise vs pointwise, 与人工评估对齐
+- **0.3 GRPO/RL 算法**: GRPO vs PPO vs DPO, reward 设计
+- **0.4 算法方向确定**: 综合结论 → `docs/design/algorithm.md`
 
 ---
 
 ## Phase 1 — veRL 双模引擎改造 ✅
 
 ### A1 — Rollout API Server
-将 veRL 的 rollout 阶段抽取为常驻 API 服务。FastAPI + vLLM HYBRID 模式，暴露 OpenAI 兼容 `/v1/chat/completions` 接口。
+veRL rollout 阶段抽取为常驻 API 服务。FastAPI + vLLM HYBRID 模式，OpenAI 兼容接口。
 
 **实现**: `verl-main-0516/verl/trainer/serve_ppo.py`
 
 ### A2 — 空闲检测 + 训练触发
-后台监控线程，空闲超时 + 样本累计 → 自动触发训练。训练期间返回 503。
+空闲超时 + 样本累计 → 自动触发训练，训练期间返回 503。
 
 **实现**: `trainable_openclaw/training/orchestrator.py` (24 tests)
 
 ### A3 — 权重同步 + GRPO 训练
-训练完成后 weight sync → 恢复推理。支持 GSM8K 数学奖励和通用 Rubric 奖励两种模式。
+train_step → weight sync → wake。支持 GSM8K 和 Rubric 两种奖励模式。
 
 **实现**: serve_ppo 内 `train_step()` + `_train_bridge` + `CheckpointEngineManager`
 
@@ -102,92 +113,244 @@
 
 ## Phase 1.5 — 数据工程与模拟测试环境
 
-核心理念：用强模型 (DeepSeek-v4-flash) 扮演挑剔用户，主动发现并纠正 Qwen3-4B 的错误，逐步引导它做出更好的回答。纠错次数作为训练信号——纠错次数下降 = 模型在进步。
+> **已完成的工作基于单轮对话。** 用 DeepSeek-v4-flash 扮演挑剔用户，与 Qwen3-4B 做多轮纠错对话，生成训练数据。
 
 ### S1 — LMSYS 种子数据抽取 ✅
-从 LMSYS-Chat-1M 分层抽样 3200 条 prompt，32 个类别均衡覆盖。
-
-**产物**: `data/seed_prompts.jsonl`
+3200 条 prompt，32 类别均衡覆盖。
 
 ### S2 — 用户模拟 + 纠错交互生成 ✅
-5 种用户画像，User Sim ↔ Qwen3-4B 多轮纠错对话。500 条种子跑出 557 训练对 + 80 测试对，11 类别。
+5 种用户画像，500 条种子 → 557 训练对 + 80 测试对，11 类别。
 
 **产物**: `scripts/run_simulation.py`, `data/phase3_datasets/`
 
 ### S3 — 轨迹评估与数据导出 ✅
-纠错轨迹分级 (direct_pass / corrected / partial / failed)，提取训练三元组和 rubric 种子维度。
+分级 (direct_pass / corrected / partial / failed)，提取训练三元组。
 
 **产物**: `trainable_openclaw/evaluation/trajectory_eval.py`
 
 ### S4 — 反思与持续优化 ⬜
-Reflection Agent 分析 FAIL 轨迹根因 → 改进 User Sim prompt → 降低 FAIL 率。
+Reflection Agent 分析 FAIL 轨迹 → 改进 User Sim prompt → FAIL 率下降。
 
 **产物** (待): `trainable_openclaw/simulation/reflection.py`
 
 ### S5 — 评估指标体系 ✅
-4 个 dataclass (JudgeQuality / ModelImprovement / RubricQuality / Convergence)，Spearman 相关性、accuracy@k、覆盖率、收敛检测。
+JudgeQuality / ModelImprovement / RubricQuality / Convergence 四个 dataclass + Spearman / accuracy@k。
 
 **产物**: `trainable_openclaw/evaluation/metrics.py` (27 tests)
-
-### S6 — Agent 框架适配调研 ⬜
-调研 open-claw、harness 等 Agent 框架的对话格式和日志结构，对比当前仿真格式的差异，设计适配方案。
-
-**产物** (待): `docs/research/agent_frameworks.md`, `docs/design/agent_adapter.md`
 
 ---
 
 ## Phase 2 — 自进化评判系统 ✅
 
 ### B0 — 对话日志系统 ✅
-SQLite + WAL 模式，sessions/messages 双表，CLI 查看器。
-
-**产物**: `trainable_openclaw/logging/conversation_store.py` (23 tests)
+SQLite + WAL，sessions/messages 双表，CLI viewer。`trainable_openclaw/logging/` (23 tests)
 
 ### B1 — 用户反馈收集与分析 ✅
-从对话日志提取反馈片段 → LLM 分析 → 识别高频反馈模式。
-
-**产物**: `trainable_openclaw/evaluation/feedback.py`
+LLM 从对话日志识别反馈模式。`trainable_openclaw/evaluation/feedback.py`
 
 ### B2 — LLM 自主生成 Rubrics ✅
-反馈模式 → LLM 生成严格量化评分 prompt → RubricStore 持久化 + 版本管理。
+反馈模式 → 量化评分 prompt → RubricStore 持久化。`evaluation/rubric.py`, `rubric_engine.py`
 
-**产物**: `trainable_openclaw/evaluation/rubric.py`, `rubric_engine.py`
-
-### B3 — Rubric 执行器 (LLM Judge) ✅
-多 Rubric 合并评分 (省 5x API 调用)，sync API 兼容 Ray actor，动态 max_tokens 防截断。
-
-**产物**: `trainable_openclaw/evaluation/judge.py` (真实 API 验证通过)
+### B3 — Rubric 执行器 (Judge) ✅
+合并评分 (省 5x API)，sync API 兼容 Ray。`evaluation/judge.py`
 
 ### B4 — Rubric 持续演进 ✅
-低分样本触发演进，生命周期管理 (匹配更新 / 新增 / 归档)。
-
-**产物**: `trainable_openclaw/evaluation/rubric_evolver.py` (25 tests + 远程 e2e)
+低分触发演进，生命周期管理。`evaluation/rubric_evolver.py` (25 tests + e2e)
 
 ---
 
 ## Phase 3 — 集成 ✅
 
 ### C1 — Pipeline 主循环 ✅
-串联 pre-eval → 训练 → post-eval → rubric 演进。CLI 三种模式 (`--eval-only` / `--gen-config` / `--evolve-rubrics`)。
-
-**产物**: `trainable_openclaw/pipeline.py` (20 tests + GPU e2e)
+pre-eval → 训练 → post-eval → rubric 演进。CLI 三种模式。`pipeline.py` (20 tests + GPU e2e)
 
 ### C2 — Dashboard ✅
-Streamlit 面板：模型状态、训练进度、评估分数、Rubric 统计。
-
-**产物**: `scripts/dashboard.py` (6 tests)
+Streamlit 面板。`scripts/dashboard.py` (6 tests)
 
 ---
 
-## Phase 4 — 生产环境评估
+## Phase 4 — Agent 引擎集成 ⬜
+
+> **核心转变：从单轮纠错对话 → 多轮 Agent 交互。**
+>
+> 当前系统基于简单的 chat 格式 (`[{role, content}]`) 运作。Agent 场景完全不同：
+> - 一轮交互包含多步：思考 → 工具调用 → 获取结果 → 回复用户
+> - 评判维度扩展：工具选择合理性、步骤效率、错误恢复能力
+> - veRL rollout 需要生成 Agent 轨迹，而非单次回答
+>
+> **策略：先用 nanobot 快速验证闭环，再迁移到 open-claw 做生产部署。**
+
+### T1 — nanobot 调研与集成
+
+**nanobot** 是一个轻量级 Agent 框架，适合快速集成和验证。
+
+**要做的事：**
+
+1. **nanobot 框架分析**
+   - Agent 循环结构：消息流、工具注册与调用、记忆管理
+   - 对话日志格式：一轮完整 Agent 交互包含哪些字段（thought / tool_call / tool_result / response）
+   - 与当前 `ConversationStore` schema 的差异对比
+2. **nanobot 实例搭建**
+   - 在本项目内集成 nanobot，对接 veRL 推理后端
+   - 配置基础工具集（文件操作、代码执行、网络搜索等）
+   - 跑通一个完整的 Agent 交互流程，抓取日志样本
+3. **日志格式对齐**
+   - 确定 ConversationStore schema 扩展方案（新增 role 类型：`tool_call` / `tool_result` / `thinking`）
+   - 写 adapter 将 nanobot 日志转为统一格式
+4. **仿真管线适配**
+   - User Sim 从"纠错对话"升级为"Agent 任务审查"
+   - 模拟用户给 Agent 布置任务 → Agent 多步执行 → 用户审查结果 → 纠错
+
+**产物**:
+- `trainable_openclaw/agent/nanobot_adapter.py` — nanobot ↔ veRL 适配器
+- `data/samples/nanobot_logs/` — 典型 Agent 交互日志样本
+- `docs/research/nanobot_analysis.md` — nanobot 框架分析笔记
+
+**验证**:
+- nanobot + veRL 推理后端跑通，完成至少 1 个完整 Agent 任务
+- Agent 日志成功写入 ConversationStore，字段无丢失
+
+---
+
+### T2 — Agent rollout 训练适配
+
+**这是改造量最大的步骤。** 当前 veRL rollout 生成单轮回答 (`prompt → answer`)。Agent 训练需要生成多轮轨迹。
+
+**当前模式 (单轮):**
+```
+veRL receives: "写一个排序函数"
+veRL generates: "def sort(arr): ..."
+Judge scores this single answer
+```
+
+**Agent 模式 (多轮):**
+```
+veRL receives: "帮我整理 Downloads 文件夹"
+veRL generates a trajectory:
+  ① thinking: "需要先列出文件，按类型分类"
+  ② tool_call: list_files("~/Downloads")
+  ③ tool_result: [file1.pdf, file2.txt, file3.jpg, ...]
+  ④ thinking: "有 3 种类型，分别移到对应文件夹"
+  ⑤ tool_call: move_file("file1.pdf", "~/Documents/PDFs")
+  ⑥ tool_call: move_file("file2.txt", "~/Documents/Texts")
+  ⑦ tool_call: move_file("file3.jpg", "~/Pictures")
+  ⑧ response: "已整理完成：3 个文件已按类型移动到对应文件夹"
+
+Judge scores the ENTIRE trajectory:
+  - 工具选择: ✅ list_files + move_file 合理
+  - 步骤效率: ⚠️ 逐个 move_file，应该批量
+  - 错误处理: ⚠️ 没有检查文件是否已存在
+```
+
+**要做的事：**
+
+1. **Agent 训练数据构造**
+   - 用 nanobot + User Sim 生成 Agent 训练轨迹
+   - 数据格式：`(task, trajectory, user_feedback)` 三元组
+   - 轨迹包含多步 thought/tool_call/tool_result/response
+2. **veRL rollout 改造**
+   - serve_ppo 的 `_train_bridge` 支持 multi-turn rollout
+   - 每步训练时，让 veRL 生成完整的 Agent 轨迹（而非单次回答）
+   - 轨迹生成需要 tool execution 环境（sandbox / mock tools）
+3. **奖励信号设计**
+   - trajectory-level reward：整条轨迹的质量评分
+   - step-level reward：每一步的工具选择/推理质量
+   - 组合方式：mean / weighted / outcome-only
+4. **训练数据格式标准化**
+   - 定义 Agent 训练数据的标准 schema
+   - 兼容 nanobot 和后续 open-claw 的日志格式
+
+**产物**:
+- `trainable_openclaw/agent/rollout.py` — Agent 多轮 rollout 引擎
+- `trainable_openclaw/agent/training_data.py` — Agent 训练数据构造
+- `docs/design/agent_training.md` — Agent 训练方案设计文档
+
+**验证**:
+- nanobot + veRL 完成 10 条 Agent 任务，生成完整轨迹
+- rollout 引擎能稳定生成 3+ 步的 Agent 轨迹
+- 轨迹日志可被 ConversationStore 完整记录
+
+---
+
+### T3 — Agent 场景 Judge 扩展
+
+Agent 的评判维度与单轮对话完全不同。需要扩展 Rubric 体系和 Judge 能力。
+
+**当前 Judge 评判维度 (单轮对话):**
+- 事实准确性、逻辑正确性、完整性、格式规范、语言表达
+
+**Agent Judge 新增维度:**
+
+| 维度 | 说明 | 示例 |
+|------|------|------|
+| 工具选择合理性 | 是否选择了最合适的工具？有无更好替代？ | 用 `list_files` 而非 `ls` shell 命令 |
+| 步骤效率 | 是否有多余步骤？能否合并？ | 逐个移动文件 vs 批量移动 |
+| 错误恢复 | 工具失败后如何处理？ | 文件不存在 → 创建目录后重试 |
+| 信息充分性 | 执行前是否收集了足够信息？ | 移动前未检查目标路径是否存在 |
+| 安全边界 | 是否拒绝了危险操作？ | 拒绝 `rm -rf /` 并给出警告 |
+| 用户交互 | 不确定时是否询问用户？ | 文件重名时让用户选择覆盖/跳过 |
+
+**要做的事：**
+
+1. **Agent Rubric 生成**
+   - 从 Agent 轨迹反馈中提取 Agent 特有的错误模式
+   - B2 RubricGenerator 扩展：支持 Agent 场景的评分 prompt 模板
+   - 示例 Rubric: "工具选择合理性 — 检查 Agent 是否选用了最直接的工具完成任务，每处不当选择扣 2 分"
+2. **Agent User Sim 升级**
+   - User Sim 能审查 Agent 轨迹，指出具体的工具选择/步骤问题
+   - 模拟用户反馈："你为什么要逐个移动文件？用通配符一次搞定不就行了？"
+3. **Agent Judge 执行**
+   - B3 JudgeExecutor 扩展：输入从单条 answer → 整条 trajectory
+   - 轨迹评分 prompt 设计：如何把多步轨迹 + 工具调用上下文塞进评分 prompt
+4. **Agent Rubric 演进**
+   - B4 RubricEvolver 适配 Agent 场景的低分样本检测
+
+**产物**:
+- `trainable_openclaw/evaluation/agent_rubric.py` — Agent 专用 Rubric 模板
+- `trainable_openclaw/evaluation/agent_judge.py` — Agent 轨迹评分器
+- `docs/design/agent_judge.md` — Agent Judge 设计文档
+
+**验证**:
+- 3 条 Agent Rubric 可正确评估 nanobot 轨迹
+- 优质轨迹得分 > 劣质轨迹得分 (区分度验证)
+
+---
+
+### T4 — open-claw 迁移
+
+nanobot 闭环跑通后，迁移到功能更完整的 open-claw 框架。
+
+**与 nanobot 的关键差异：**
+- 更复杂的工具生态 (更多的内置工具、工具组合)
+- 更长的上下文窗口 (可能需要上下文压缩)
+- 多模态支持 (图片/文件输入)
+- 更完善的安全机制
+
+**要做的事：**
+
+1. **open-claw 框架分析** — 架构、消息格式、工具系统、日志格式
+2. **adapter 开发** — 将 T1 的适配层从 nanobot 切换到 open-claw，接口保持不变
+3. **工具集映射** — nanobot 工具 → open-claw 工具的语义对应
+4. **仿真管线适配** — User Sim 适配 open-claw 的 Agent 交互模式
+5. **训练数据迁移** — nanobot 阶段积累的训练数据可在 open-claw 上复用
+
+**产物**:
+- `trainable_openclaw/agent/openclaw_adapter.py` — open-claw ↔ veRL 适配器
+- `docs/research/openclaw_analysis.md` — open-claw 框架分析笔记
+
+**验证**:
+- open-claw + veRL 跑通与 nanobot 阶段相同的 Agent 任务
+- adapter 接口无需修改即可切换后端
+
+---
+
+## Phase 5 — 生产环境评估
 
 ### D1 — 测试集构建 ✅
 80 test prompts，11 类别，与训练集零重叠。
 
 ### D2 — 效果评估体系 ✅
-纠错率 (Correction Rate) 为核心指标。基线评测 + 训练后对比完成。
-
-**产物**: `trainable_openclaw/evaluation/correction_rate.py`
+纠错率为核心指标。baseline + post-eval 对比完成。`evaluation/correction_rate.py`
 
 ### D3 — 持续改进闭环 ⬜
 效果报告 → 分析薄弱维度 → 调整策略 → 再训练。远期规划。
@@ -200,53 +363,32 @@ Streamlit 面板：模型状态、训练进度、评估分数、Rubric 统计。
 |------|------|
 | 总 commits | 49 |
 | 单测通过 | 154 (6 个文件) |
-| 代码行数 (trainable_openclaw/) | ~3,600 |
-| 仿真训练对 | 557 (496 unique prompts, 11 类别) |
-| 测试集 | 80 prompts, 与训练零重叠 |
+| Phase 1-3 代码行数 | ~3,600 |
+| 仿真训练对 | 557 (496 unique, 11 类别) |
 | 动态 Rubric | 8 条 category-aware |
 
 ---
 
 ## 训练实验记录
 
-### Round 1 — 20 条旧 Rubric (基线)
-- 8p×8r=64 answers/step, lr=3e-6, 10 steps
-- reward: 0.186~0.296, mean=0.248, 76 min
-- 问题: rubric 太多太泛，区分度低
+| Round | Rubric | 配置 | Reward Mean | 结果 |
+|-------|--------|------|-------------|------|
+| 1 | 20 条旧 | 8p×8r=64, lr=3e-6 | 0.248 | 区分度低 |
+| 2 | 5 条优化 | 8p×8r=64, lr=5e-6 | 0.638 | Rubric 质量 > 数量 |
+| 3 | 8 条动态 | 48p×4r=192, lr=5e-6, 42 steps | 0.184 | 不收敛, ckpt10 退化 |
 
-### Round 2 — 5 条优化 Rubric
-- 8p×8r=64, lr=5e-6, 10 steps
-- reward: 0.575~0.698, mean=0.638, 53 min
-- Rubric 质量 >> 数量
-
-### Round 3 — 正式训练 (动态 Rubric, 496 prompts)
-- 48p×4r=192 answers/step, lr=5e-6, 42 steps
-- Phase 1 (steps 1-15): 小 batch debug, reward 0~0.35
-- Phase 2 (steps 16-42): 全 batch, mean reward=0.184, 轻微下行
-- **Checkpoint 问题**: 仅 step_10 保存成功，Phase 2/3 检查点丢失
-
-### Checkpoint step_10 评测
-
-| 指标 | 基线 (Qwen3-4B) | 训练后 (ckpt10) | Delta |
-|------|-----------------|-----------------|-------|
-| 纠错率 | 0.60 | 0.88 | **+0.28 (恶化)** |
-| 直接通过 | 32 (40%) | 9 (11.5%) | -23 |
-| 失败 | 12 (15%) | 35 (44.9%) | +23 |
-
-**结论**: Qwen3-4B 容量不足，reward 信号无上升趋势。10/11 类别退化。
+**Checkpoint step_10 评测**: 纠错率 0.60 → 0.88 (恶化)，10/11 类别退化。结论：Qwen3-4B 容量不足。
 
 ---
 
-## 当前状态 & 遗留问题
+## 当前状态
 
-**框架代码全部完成** (18/22 steps)，154 单测通过，远程 GPU 真实 API 验证通过。
+**Phase 1-3 完成** (18/21 steps)，154 单测通过，框架代码可运行。
 
-**3 个遗留问题：**
-1. **训练不收敛** — Qwen3-4B + GRPO，需要换 7B+ 模型、调整超参
-2. **Checkpoint 跨重启丢失** — serve_ppo 重启后 save_ckpt_interval 未能继续触发
-3. **S4/S6 待开发** — 反思模块 + Agent 框架适配调研
+**Phase 4 待启动** — Agent 引擎集成是下一步核心工作，预计 3-4 周：
+1. T1 nanobot 集成 (~1 周) — 快速跑通 Agent 闭环
+2. T2 rollout 改造 (~1.5 周) — 最大的代码改动
+3. T3 Judge 扩展 (~1 周) — Agent 评判维度
+4. T4 open-claw 迁移 (~0.5 周) — nanobot 稳定后切换
 
-**下阶段方向：**
-1. S6: Agent 框架适配调研 (open-claw / harness)
-2. 换 7B+ 模型重跑训练，修复 checkpoint 机制
-3. 训练收敛后补 S4 反思模块
+**训练收敛问题** — 与 Phase 4 并行解决：换 7B+ 模型、修复 checkpoint 机制、调整 GRPO 超参。
