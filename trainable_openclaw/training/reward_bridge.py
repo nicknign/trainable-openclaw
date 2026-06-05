@@ -52,7 +52,7 @@ class RewardBridge:
         reward_mode: str = "mean",
         enable_thinking: bool = False,
         rubric_weights: list[float] | None = None,
-        use_merged: bool = True,
+        use_merged: bool = False,
     ):
         self.rubrics_path = Path(rubrics_path)
         self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")

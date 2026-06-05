@@ -644,3 +644,41 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 | `scripts/analyze_run.py` | 新建: 训练日志解析 + 分析报告生成 |
 | `docs/validation_report.md` | 新建: 框架代码完整评测报告 |
 | `runs/2026-06-03_42steps/` | 新建: 训练日志/分析/评测结果存档 |
+
+---
+
+## 2026/06/06
+
+### 完整训练运行（104 steps，~16h GPU）
+
+- **5 个阶段**，逐步调参：
+  - Phase 1 (15 steps): debug，2p×2r=4, rlen=504 (截断)
+  - Phase 2 (27 steps): 48p×4r=192, rlen=497 (截断)
+  - Phase 3 (25 steps): 32p×4r=128, rlen=500 (截断，reward 暴跌至 0.031)
+  - Phase 4 (6 steps): 过渡配置
+  - Phase 5 (31 steps): **16p×4r=64, rlen=1925** (完整回复，修复成功)
+- **关键发现**: `response_length` 默认 512 导致 75% 代码被截断。改为 4096 后 reward 从 0.06 跳到 0.67（5x 提升）
+- **Phase 5 结果**: mean reward=0.588, 60.8% >0.5, loss=0.045 (非零，模型在学)
+- **3 步移动平均**: 0.52-0.64 震荡，无单调上升趋势（31 步不够，或 lr=1e-5 太低）
+- **Checkpoint**: step_10 (17:48) 和 step_20 (19:17) 均在 Phase 5 期间保存，LoRA 已提取为 PEFT 格式（126MB）
+- **前 73 步浪费**: ~11.6h GPU 时间在截断回复上训练，效果极差
+- **结论**: response_length 是最关键的杠杆；Qwen3-4B 容量有限，更大规模训练调优留到后续阶段
+
+### 项目决策
+
+- **暂停当前规模训练**：当前阶段聚焦功能快速开发，大规模训练调优留到后续
+- **推进 Phase 4**：Agent 引擎集成是下一步核心工作
+- **产物归档**: `reports/training_summary_2026-06-06.md` + 日志下载
+
+### 今日改动文件
+
+| 文件 | 改动 |
+|------|------|
+| `reports/training_summary_2026-06-06.md` | 新建: 完整训练分析报告 |
+| `reports/phase3_train.log` | 下载: 服务端日志 (6.7MB) |
+| `reports/serve_ppo_train.log` | 下载: 训练详情日志 (1.3MB) |
+| `reports/generation_samples.json` | 下载: 生成样本缓存 (160KB) |
+| `reports/start_train.sh` | 下载: 训练启动脚本 |
+| `tmp/run_eval.py` | 新建: 通用测试集评测脚本 (generation + individual scoring) |
+| `verl-main-0516/verl/trainer/config/rollout/rollout.yaml` | prompt_length 512→2048, response_length 512→4096, temperature 1.0→0.6 |
+| `scripts/start_train.sh` | +prompt_length=2048, +response_length=4096, +max_model_len=8192, prompts_per_step=16, rollout_n=4 |

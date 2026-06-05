@@ -92,7 +92,7 @@ class JudgeExecutor:
     优化策略:
     - merged 模式: 所有 rubric 合并为一次 API 调用（减少 5x 调用量）
     - thinking 默认关闭: 评分任务不需要深度推理
-    - max_tokens=500: JSON 响应很短
+    - max_tokens=2048: JSON 响应（部分 rubric 需要更多 tokens）
     """
 
     def __init__(
@@ -149,7 +149,7 @@ class JudgeExecutor:
             "model": self.model,
             "messages": [{"role": "user", "content": judge_prompt}],
             "temperature": 0.0,
-            "max_tokens": 500,
+            "max_tokens": 2048,
         }
         if self.enable_thinking:
             kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
@@ -268,7 +268,7 @@ class JudgeExecutor:
             "model": self.model,
             "messages": [{"role": "user", "content": judge_prompt}],
             "temperature": 0.0,
-            "max_tokens": 500,
+            "max_tokens": 2048,
         }
         if self.enable_thinking:
             kwargs["extra_body"] = {"thinking": {"type": "enabled"}}

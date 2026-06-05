@@ -61,6 +61,8 @@ from trainable_openclaw.server.api import (  # standalone — no verl deps
     create_app,
     logger,
 )
+
+SYSTEM_PROMPT = "You are a code generator. Output clean, runnable code in ``` fences. No explanations unless asked."
 from verl.utils.device import auto_set_device
 
 
@@ -386,9 +388,9 @@ class ServeRunner(TaskRunner):
                 gen_requests.append({
                     "url": vllm_url,
                     "model": model_path,
-                    "messages": [{"role": "user", "content": prompt_text}],
+                    "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt_text}],
                     "max_tokens": sampling_params.get("max_tokens", 2048),
-                    "temperature": sampling_params.get("temperature", 1.0),
+                    "temperature": sampling_params.get("temperature", 0.6),
                     "top_p": sampling_params.get("top_p", 1.0),
                     "idx": i * rollout_n + j + 1,
                     "prompt_ids": prompt_ids,
@@ -420,7 +422,8 @@ class ServeRunner(TaskRunner):
                 slot = idx - 1
                 all_prompt_ids[slot] = prompt_ids
                 all_responses_text[slot] = response_text
-                _log(f"Gen {idx}/{total_samples}: prompt={len(prompt_ids)} resp={len(response_text)}")
+                resp_tokens = len(self._tokenizer.encode(response_text, add_special_tokens=False))
+                _log(f"Gen {idx}/{total_samples}: prompt_tok={len(prompt_ids)} resp_tok={resp_tokens}")
                 logger.info(
                     "Generated %d/%d: prompt_len=%d resp_len=%d",
                     idx, total_samples, len(prompt_ids), len(response_text),
@@ -429,6 +432,30 @@ class ServeRunner(TaskRunner):
         t_gen = time.time()
         _log(f"Generation done in {t_gen - t_start:.1f}s")
         logger.info("Generation done in %.1fs", t_gen - t_start)
+
+        # ---- 1.5 Save sample cache for inspection (first 100 generations) ----
+        CACHE_PATH = "/tmp/generation_samples.json"
+        try:
+            cache_data = []
+            for i in range(min(100, len(all_responses_text))):
+                pid = all_prompt_ids[i]
+                resp_text = all_responses_text[i]
+                if pid is not None and resp_text is not None:
+                    prompt_text = self._tokenizer.decode(pid, skip_special_tokens=False)
+                    resp_ids = self._tokenizer.encode(resp_text, add_special_tokens=False)
+                    cache_data.append({
+                        "idx": i + 1,
+                        "prompt_chars": len(prompt_text),
+                        "response_chars": len(resp_text),
+                        "response_tokens": len(resp_ids),
+                        "prompt_text": prompt_text[:500],
+                        "response_text": resp_text[:2000],
+                    })
+            with open(CACHE_PATH, "w", encoding="utf-8") as cf:
+                json.dump(cache_data, cf, ensure_ascii=False, indent=2)
+            _log(f"Sample cache saved: {len(cache_data)} entries → {CACHE_PATH}")
+        except Exception as e:
+            _log(f"Sample cache save failed: {e}")
 
         # ---- 2. Compute rewards (Rubric-based via B3 Judge, or GSM8K fallback) ----
         rubrics_path = training_data.get("rubrics_path", "")
@@ -449,6 +476,7 @@ class ServeRunner(TaskRunner):
                 max_rubrics=training_data.get("max_rubrics", 0),
                 reward_mode=training_data.get("reward_mode", "mean"),
                 rubric_weights=training_data.get("rubric_weights"),
+                use_merged=False,
             )
 
             if not bridge.rubrics:
@@ -534,7 +562,7 @@ class ServeRunner(TaskRunner):
 
         # ---- 4. Build DataProto batch (structural only) ----
         batch = self._build_training_batch(all_prompt_ids, responses)
-        batch.meta_info["temperature"] = sampling_params.get("temperature", 1.0)
+        batch.meta_info["temperature"] = sampling_params.get("temperature", 0.6)
         batch.meta_info["multi_turn"] = False
         _log(f"Training batch built: { {k: v.shape for k, v in batch.batch.items()} }")
         logger.info("Training batch built: %s", {k: v.shape for k, v in batch.batch.items()})
@@ -925,6 +953,34 @@ def _load_trajectory_data(config, tokenizer) -> list[dict]:
     return data
 
 
+def _load_trajectory_data_eval(data_path: str, tokenizer) -> list[dict]:
+    """Load eval prompts from .txt (one per line) or .jsonl file."""
+    import json as _json
+
+    prompts = []
+    if data_path.endswith('.txt'):
+        with open(data_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                text = line.strip()
+                if text:
+                    prompt_ids = tokenizer.encode(text)
+                    prompts.append({"prompt_ids": prompt_ids, "prompt_text": text})
+    elif data_path.endswith('.jsonl'):
+        with open(data_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.strip():
+                    d = _json.loads(line)
+                    text = d.get('prompt', '')
+                    if text:
+                        prompt_ids = tokenizer.encode(text)
+                        prompts.append({"prompt_ids": prompt_ids, "prompt_text": text})
+    else:
+        logger.warning("Unsupported eval data format: %s", data_path)
+
+    logger.info("Loaded %d eval prompts from %s", len(prompts), data_path)
+    return prompts
+
+
 def run_serve(config) -> None:
     """Initialize Ray, create ServeRunner actor, and start FastAPI on the driver."""
     from verl.utils.device import is_cuda_available
@@ -997,6 +1053,19 @@ def run_serve(config) -> None:
     min_samples = config.trainer.get("min_samples", 16)
     save_ckpt_interval = config.trainer.get("save_ckpt_interval", 10)
     checkpoint_dir = config.trainer.get("checkpoint_dir", "checkpoints")
+
+    # ---- Test-set evaluation config ----
+    eval_config = config.trainer.get("eval", {})
+    eval_enabled = eval_config.get("enabled", False)
+    eval_interval = eval_config.get("interval", 10)  # steps between evals
+    eval_test_path = eval_config.get("test_data_path", "")
+    eval_prompts = []  # pre-loaded test prompts
+    _global_step_counter = [0]  # mutable int across cycles
+
+    if eval_enabled and eval_test_path:
+        eval_prompts = _load_trajectory_data_eval(eval_test_path, tokenizer)
+        logger.info("Test eval enabled: interval=%d, test_prompts=%d, path=%s",
+                    eval_interval, len(eval_prompts), eval_test_path)
 
     # Unified training pool: each item tracks train_count
     _training_pool: list[dict] = []
@@ -1072,6 +1141,96 @@ def run_serve(config) -> None:
     async def _async_monitor_loop():
         """Monitor idle state and trigger training — runs on uvicorn event loop."""
 
+        # ---- Test eval helper (captures closure vars) ----
+        async def _run_test_eval(cycle_num: int):
+            """Evaluate model on test set and log correction rate."""
+            if not eval_enabled or not eval_prompts:
+                return
+
+            eval_start = _time.time()
+            sampling_params = {
+                "temperature": info["rollout_config"].get("temperature", 0.6),
+                "top_p": info["rollout_config"].get("top_p", 1.0),
+                "max_tokens": info["rollout_config"].get("response_length", 8192),
+            }
+
+            # Generate responses for all test prompts
+            results = []
+            for i, p in enumerate(eval_prompts):
+                try:
+                    output = await llm_client.generate(
+                        request_id=f"eval-{cycle_num}-{i}",
+                        prompt_ids=p["prompt_ids"],
+                        sampling_params=sampling_params,
+                    )
+                    response_text = tokenizer.decode(output.token_ids, skip_special_tokens=True)
+                    results.append({
+                        "prompt": p["prompt_text"],
+                        "response": response_text,
+                        "error": None,
+                    })
+                except Exception as e:
+                    results.append({
+                        "prompt": p["prompt_text"],
+                        "response": "",
+                        "error": str(e),
+                    })
+
+            gen_time = _time.time() - eval_start
+
+            # Score with judge
+            try:
+                from trainable_openclaw.evaluation.judge import JudgeExecutor
+                from trainable_openclaw.evaluation.rubric import Rubric
+
+                import json as _json
+                with open(rubrics_path, 'r', encoding='utf-8') as f:
+                    rubric_dicts = _json.load(f)
+
+                active_rubrics = [Rubric.from_dict(r) for r in rubric_dicts
+                                  if r.get('状态', '活跃') == '活跃']
+
+                judge = JudgeExecutor(
+                    api_key=api_key,
+                    base_url=base_url,
+                    model=judge_model,
+                    enable_thinking=False,
+                    use_merged=False,
+                )
+
+                all_scores = []
+                for r in results:
+                    if r["error"]:
+                        all_scores.append(0.0)
+                        continue
+                    try:
+                        score_results = judge.score_answers_sync(
+                            prompt=r["prompt"],
+                            answers=[r["response"]],
+                            rubrics=active_rubrics,
+                        )
+                        rewards = judge.compute_grpo_rewards(score_results, reward_mode="mean")
+                        all_scores.append(rewards[0] if rewards else 0.0)
+                    except Exception:
+                        all_scores.append(0.0)
+
+                mean_score = sum(all_scores) / len(all_scores) if all_scores else 0
+                score_time = _time.time() - eval_start - gen_time
+                total_time = _time.time() - eval_start
+
+                logger.info(
+                    "EVAL cycle=%d: n=%d, mean_score=%.3f, gen_time=%.1fs, score_time=%.1fs, total=%.1fs",
+                    cycle_num, len(results), mean_score, gen_time, score_time, total_time,
+                )
+                print(
+                    f"[EVAL] cycle={cycle_num} | {len(results)} test prompts | "
+                    f"mean_score={mean_score:.3f} | gen={gen_time:.1f}s judge={score_time:.1f}s total={total_time:.1f}s",
+                    file=sys.stderr, flush=True,
+                )
+            except Exception:
+                logger.exception("Test eval failed (non-fatal)")
+                print(f"[EVAL] cycle={cycle_num} FAILED", file=sys.stderr, flush=True)
+
         logger.info(
             "Async training monitor started — idle_timeout=%ds, min_samples=%d",
             _orch_state["idle_timeout"], _orch_state["min_samples"],
@@ -1098,6 +1257,8 @@ def run_serve(config) -> None:
                 continue
 
             # ---- Trigger training ----
+            _global_step_counter[0] += 1
+            cycle_num = _global_step_counter[0]
             _orch_state["training_in_progress"] = True
             _orch_state["mode"] = "training"
             t_start = _time.time()
@@ -1128,7 +1289,7 @@ def run_serve(config) -> None:
                 rollout_config = info["rollout_config"]
                 rollout_n = rollout_config.get("n", 4)
                 sampling_params = {
-                    "temperature": rollout_config.get("temperature", 1.0),
+                    "temperature": rollout_config.get("temperature", 0.6),
                     "top_p": rollout_config.get("top_p", 1.0),
                     "max_tokens": rollout_config.get("response_length", 8192),
                 }
@@ -1302,6 +1463,10 @@ def run_serve(config) -> None:
                     f"score={_avg('critic/score/mean'):.3f}, adv={_avg('critic/advantages/mean'):.3f}",
                     file=sys.stderr, flush=True,
                 )
+
+                # ---- Test eval after training cycle ----
+                if eval_enabled and eval_prompts:
+                    await _run_test_eval(cycle_num)
 
             except Exception:
                 logger.exception("Training failed — resuming serving with old weights")

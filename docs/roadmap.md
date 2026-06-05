@@ -376,19 +376,29 @@ nanobot 闭环跑通后，迁移到功能更完整的 open-claw 框架。
 | 1 | 20 条旧 | 8p×8r=64, lr=3e-6 | 0.248 | 区分度低 |
 | 2 | 5 条优化 | 8p×8r=64, lr=5e-6 | 0.638 | Rubric 质量 > 数量 |
 | 3 | 8 条动态 | 48p×4r=192, lr=5e-6, 42 steps | 0.184 | 不收敛, ckpt10 退化 |
+| 4 | 4 条 coding | 16p×4r=64, lr=1e-5, 104 steps | 0.588 | **response_length 是关键** |
 
-**Checkpoint step_10 评测**: 纠错率 0.60 → 0.88 (恶化)，10/11 类别退化。结论：Qwen3-4B 容量不足。
+**Round 4 详细 (2026/06/02-06/05, ~16h GPU)**:
+- 前 73 步 rlen≤512（截断），reward 0.03-0.18，无效训练
+- response_length 512→4096 后（Phase 5, 31 steps），reward 跳至 0.588
+- 3 步移动平均 0.52-0.64 震荡，无明显单调趋势
+- **根因**: rollout.yaml 默认 response_length=512 截断了 75% 的代码
+- **教训**: 训练前必须检查 `rlen` 指标，确保回复完整
+- Checkpoint step_20 在 Phase 5 保存（有效训练），LoRA 已提取
+
+**当前结论**：Qwen3-4B + LoRA rank=16 在 coding 任务上有学习信号（loss 非零），但 31 步不足收敛。当前阶段聚焦功能开发，大规模训练调优留到后续。
 
 ---
 
 ## 当前状态
 
-**Phase 1-3 完成** (18/21 steps)，154 单测通过，框架代码可运行。
+**Phase 1-3 完成** (18/21 steps)，154 单测通过，框架代码可运行。4 轮训练实验完成。
 
-**Phase 4 待启动** — Agent 引擎集成是下一步核心工作，预计 3-4 周：
-1. T1 nanobot 集成 (~1 周) — 快速跑通 Agent 闭环
-2. T2 rollout 改造 (~1.5 周) — 最大的代码改动
-3. T3 Judge 扩展 (~1 周) — Agent 评判维度
-4. T4 open-claw 迁移 (~0.5 周) — nanobot 稳定后切换
+**Phase 4 启动中** — Agent 引擎集成是当前核心工作：
 
-**训练收敛问题** — 与 Phase 4 并行解决：换 7B+ 模型、修复 checkpoint 机制、调整 GRPO 超参。
+1. T1 nanobot 集成 — 快速跑通 Agent 闭环
+2. T2 rollout 改造 — Agent 多轮轨迹生成
+3. T3 Judge 扩展 — Agent 评判维度
+4. T4 open-claw 迁移 — 生产级框架
+
+**训练收敛问题** — 当前阶段聚焦功能开发，后续阶段解决：7B+ 模型、更多步数、pairwise reward。
