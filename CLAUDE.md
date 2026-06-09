@@ -764,3 +764,44 @@ nanobot 源码 (v0.2.1) 调研完成，三大集成任务代码完成：
 ### Git 状态
 - 6 个新文件未提交
 - 154 个已有测试全部通过，无回归
+
+---
+
+## 2026/06/10
+
+### nanobot 远程部署与体验
+
+- **远程**: `connect.westc.seetacloud.com:13738`，RTX 4090
+- **Git push**: Phase 4 代码 `3335bc6` + `start_experience.sh` `5677252`
+- **测试**: 156 单元测试 0 失败，Phase 4 6/6 通过 (--quick)
+- **nanobot 源码**: 解压到 `/data/wangye/trainable-openclaw/nanobot-0.2.1/`，PYTHONPATH 方式加载
+- **依赖**: aiohttp, dulwich, json-repair（pip 安装）
+
+### nanobot Experience 一键启动
+
+- **`scripts/start_experience.sh`**: 一键启动 3 个服务
+  1. **serve_ppo** :8000 — Qwen3-4B 纯推理 (idle_timeout=999999)
+  2. **nanobot API** :8900 — OpenAI-compatible `/v1/chat/completions` (`nanobot serve`)
+  3. **nanobot GW** :18790 — 健康检查 + WebSocket channel :18791
+
+### 启动后使用方式
+
+```bash
+# 测试 API
+curl http://localhost:8900/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"qwen3-4b","messages":[{"role":"user","content":"Hello"}],"max_tokens":100}'
+
+# CLI 交互聊天
+cd /data/wangye/trainable-openclaw
+python -m nanobot agent --config /root/.nanobot/config.json
+```
+
+### 修复的问题
+
+1. **git pull SSH key 权限**: 远程无法 git pull，改为 SFTP 直接上传文件
+2. **nanobot 模块未安装**: pip install -e 失败（缺失 hatch_build.py），改用 PYTHONPATH
+3. **WebSocket 端口冲突**: gateway health server 和 websocket 都绑 18790 → websocket 改为 18791
+4. **WebSocket 安全策略**: 绑定 0.0.0.0 需要 token_issue_secret → 改为 127.0.0.1
+5. **WebUI dist 缺失**: 源码不包含 webui/dist（需 bun build），实际体验用 API + CLI 模式
+6. **缺失依赖**: dulwich (GitStore), aiohttp (API server) 手动安装

@@ -1,45 +1,50 @@
 #!/bin/bash
-# Quick-start: serve_ppo + nanobot for interactive experimentation
+# Quick-start: serve_ppo + nanobot (API server + gateway) for experimentation
 # Pure inference mode — no training, no external API needed
 set -e
 
 export LD_LIBRARY_PATH=/data/anaconda3/lib:$LD_LIBRARY_PATH
 cd /data/wangye/trainable-openclaw
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
+# -- Config ---------------------------------------------------------------
 MODEL_PATH="${MODEL_PATH:-/data/models/Qwen3-4B}"
 SERVE_PORT="${SERVE_PORT:-8000}"
-NANOBOT_PORT="${NANOBOT_PORT:-18790}"
-GPU_MEM="${GPU_MEM:-0.4}"          # 0.4 = leave room for FSDP overhead (HYBRID mode)
+NANOBOT_API_PORT="${NANOBOT_API_PORT:-8900}"
+NANOBOT_GW_PORT="${NANOBOT_GW_PORT:-18790}"
+GPU_MEM="${GPU_MEM:-0.4}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
+PYTHON=/data/anaconda3/bin/python
+NANOBOT_SRC=/data/wangye/trainable-openclaw/nanobot-0.2.1
 
 echo "============================================"
 echo "  nanobot Experience Mode"
 echo "============================================"
-echo "  Model:      $MODEL_PATH"
-echo "  serve_ppo:  http://localhost:$SERVE_PORT/v1"
-echo "  nanobot:    http://localhost:$NANOBOT_PORT"
-echo "  GPU mem:    $GPU_MEM"
+echo "  Model:        $MODEL_PATH"
+echo "  serve_ppo:    http://localhost:$SERVE_PORT/v1"
+echo "  nanobot API:  http://localhost:$NANOBOT_API_PORT/v1/chat/completions"
+echo "  nanobot GW:   http://localhost:$NANOBOT_GW_PORT"
 echo "============================================"
 echo ""
 
-# ---------------------------------------------------------------------------
-# Step 1: Kill old processes
-# ---------------------------------------------------------------------------
-echo "[1/4] Cleaning up old processes..."
+# -- Step 1: Kill old processes -------------------------------------------
+echo "[1/5] Cleaning up old processes..."
 pkill -f "serve_ppo" 2>/dev/null || true
 pkill -f "nanobot gateway" 2>/dev/null || true
+pkill -f "nanobot serve" 2>/dev/null || true
 sleep 2
 echo "  Done"
 echo ""
 
-# ---------------------------------------------------------------------------
-# Step 2: Start serve_ppo (pure inference)
-# ---------------------------------------------------------------------------
-echo "[2/4] Starting serve_ppo (pure inference, idle_timeout=999999)..."
-nohup /data/anaconda3/bin/python -m verl.trainer.serve_ppo \
+# -- Step 2: Install deps if needed ---------------------------------------
+echo "[2/5] Checking dependencies..."
+$PYTHON -c "import aiohttp" 2>/dev/null || $PYTHON -m pip install aiohttp -q
+$PYTHON -c "import dulwich" 2>/dev/null || $PYTHON -m pip install dulwich -q
+echo "  Done"
+echo ""
+
+# -- Step 3: Start serve_ppo (pure inference) ------------------------------
+echo "[3/5] Starting serve_ppo (pure inference)..."
+nohup $PYTHON -m verl.trainer.serve_ppo \
     actor_rollout_ref.model.path="$MODEL_PATH" \
     actor_rollout_ref.model.lora_rank=16 \
     actor_rollout_ref.model.lora_alpha=32 \
@@ -79,9 +84,8 @@ nohup /data/anaconda3/bin/python -m verl.trainer.serve_ppo \
     > /tmp/serve_ppo_experience.log 2>&1 &
 
 SERVE_PID=$!
-echo "  PID: $SERVE_PID (log: /tmp/serve_ppo_experience.log)"
+echo "  PID: $SERVE_PID"
 
-# Wait for serve_ppo to be ready
 echo -n "  Waiting for serve_ppo..."
 for i in $(seq 1 120); do
     if curl -sf "http://localhost:$SERVE_PORT/v1/health" > /dev/null 2>&1; then
@@ -89,8 +93,7 @@ for i in $(seq 1 120); do
         break
     fi
     if ! kill -0 "$SERVE_PID" 2>/dev/null; then
-        echo ""
-        echo "  ERROR: serve_ppo died. Check log:"
+        echo " ERROR: died"
         tail -20 /tmp/serve_ppo_experience.log
         exit 1
     fi
@@ -99,10 +102,8 @@ for i in $(seq 1 120); do
 done
 echo ""
 
-# ---------------------------------------------------------------------------
-# Step 3: Generate nanobot config
-# ---------------------------------------------------------------------------
-echo "[3/4] Generating nanobot config..."
+# -- Step 4: Generate nanobot config --------------------------------------
+echo "[4/5] Generating nanobot config..."
 CONFIG_DIR="$HOME/.nanobot"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 mkdir -p "$CONFIG_DIR"
@@ -137,17 +138,27 @@ cat > "$CONFIG_FILE" << EOFCFG
     }
   },
   "gateway": {
-    "host": "0.0.0.0",
-    "port": ${NANOBOT_PORT}
+    "host": "127.0.0.1",
+    "port": ${NANOBOT_GW_PORT}
   },
   "api": {
     "host": "127.0.0.1",
-    "port": 8900
+    "port": ${NANOBOT_API_PORT}
   },
   "tools": {
     "exec": {
       "sandbox": "none",
       "allowLocalhost": true
+    }
+  },
+  "channels": {
+    "websocket": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 18791,
+      "path": "/",
+      "allow_from": ["*"],
+      "streaming": true
     }
   }
 }
@@ -155,36 +166,55 @@ EOFCFG
 echo "  Config: $CONFIG_FILE"
 echo ""
 
-# ---------------------------------------------------------------------------
-# Step 4: Start nanobot gateway
-# ---------------------------------------------------------------------------
-echo "[4/4] Starting nanobot gateway..."
-nohup /data/anaconda3/bin/python -m nanobot gateway \
+# -- Step 5: Start nanobot services ---------------------------------------
+echo "[5/5] Starting nanobot..."
+
+# API server (OpenAI-compatible, port 8900)
+nohup $PYTHON -m nanobot serve \
     --config "$CONFIG_FILE" \
+    --host 127.0.0.1 --port $NANOBOT_API_PORT \
+    > /tmp/nanobot_api.log 2>&1 &
+API_PID=$!
+echo "  API PID: $API_PID (log: /tmp/nanobot_api.log)"
+
+# Gateway (health + websocket, port 18790)
+nohup $PYTHON -m nanobot gateway \
+    --config "$CONFIG_FILE" \
+    --port $NANOBOT_GW_PORT \
     > /tmp/nanobot_gateway.log 2>&1 &
+GW_PID=$!
+echo "  GW PID:  $GW_PID (log: /tmp/nanobot_gateway.log)"
 
-NANOBOT_PID=$!
-echo "  PID: $NANOBOT_PID (log: /tmp/nanobot_gateway.log)"
+sleep 4
 
-sleep 3
-if kill -0 "$NANOBOT_PID" 2>/dev/null; then
-    echo ""
-    echo "============================================"
-    echo "  READY"
-    echo "============================================"
-    echo ""
-    echo "  WebChat:   http://localhost:${NANOBOT_PORT}/webui/"
-    echo "  API:       http://localhost:${NANOBOT_PORT}/api/v1/chat/completions"
-    echo ""
-    echo "  Logs:"
-    echo "    serve_ppo:  tail -f /tmp/serve_ppo_experience.log"
-    echo "    nanobot:    tail -f /tmp/nanobot_gateway.log"
-    echo ""
-    echo "  Stop:  pkill -f 'serve_ppo'; pkill -f 'nanobot gateway'"
-    echo "============================================"
-else
-    echo "  ERROR: nanobot gateway failed to start"
-    echo "  tail -20 /tmp/nanobot_gateway.log"
-    tail -20 /tmp/nanobot_gateway.log
-    exit 1
-fi
+# Verify
+API_OK=0
+GW_OK=0
+curl -sf http://localhost:$NANOBOT_API_PORT/health > /dev/null 2>&1 && API_OK=1
+curl -sf http://localhost:$NANOBOT_GW_PORT/health > /dev/null 2>&1 && GW_OK=1
+
+echo ""
+echo "============================================"
+echo "  READY"
+echo "============================================"
+echo ""
+echo "  serve_ppo:  http://localhost:${SERVE_PORT}/v1  [$( [[ $SERVE_PID ]] && echo OK || echo FAIL )]"
+echo "  nanobot API: http://localhost:${NANOBOT_API_PORT}   [$( [[ $API_OK -eq 1 ]] && echo OK || echo FAIL )]"
+echo "  nanobot GW:  http://localhost:${NANOBOT_GW_PORT}  [$( [[ $GW_OK -eq 1 ]] && echo OK || echo FAIL )]"
+echo ""
+echo "  Test API:"
+echo "    curl http://localhost:${NANOBOT_API_PORT}/v1/chat/completions \\"
+echo "      -H 'Content-Type: application/json' \\"
+echo "      -d '{\"model\":\"qwen3-4b\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"max_tokens\":100}'"
+echo ""
+echo "  CLI chat (interactive):"
+echo "    cd /data/wangye/trainable-openclaw"
+echo "    $PYTHON -m nanobot agent --config $CONFIG_FILE"
+echo ""
+echo "  Logs:"
+echo "    serve_ppo:  tail -f /tmp/serve_ppo_experience.log"
+echo "    nanobot API: tail -f /tmp/nanobot_api.log"
+echo "    nanobot GW:  tail -f /tmp/nanobot_gateway.log"
+echo ""
+echo "  Stop:  pkill -f 'serve_ppo'; pkill -f 'nanobot'"
+echo "============================================"
