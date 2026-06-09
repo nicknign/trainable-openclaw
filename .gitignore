@@ -21,6 +21,12 @@ Thumbs.db
 # secrets
 .env
 
+# vendored third-party
+nanobot-0.2.1/
+
+# deployment scripts (contain credentials)
+tmp/
+
 # papers
 papers*
 

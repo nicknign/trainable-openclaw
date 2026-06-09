@@ -682,3 +682,85 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 | `tmp/run_eval.py` | 新建: 通用测试集评测脚本 (generation + individual scoring) |
 | `verl-main-0516/verl/trainer/config/rollout/rollout.yaml` | prompt_length 512→2048, response_length 512→4096, temperature 1.0→0.6 |
 | `scripts/start_train.sh` | +prompt_length=2048, +response_length=4096, +max_model_len=8192, prompts_per_step=16, rollout_n=4 |
+
+---
+
+## 2026/06/09
+
+### Phase 4: nanobot Agent 引擎集成
+
+nanobot 源码 (v0.2.1) 调研完成，三大集成任务代码完成：
+
+#### T1: nanobot 作为 serve_ppo 前端
+- `trainable_openclaw/agent/nanobot_adapter.py`: 核心适配层
+  - `NanobotAdapter.build_config()` → 生成 nanobot config JSON，`custom` provider 指向 serve_ppo API
+  - `create_bot()` → 程序化创建 `Nanobot` 实例
+  - `check_serve_ppo()` → cook serve_ppo 健康检查
+  - `test_connection()` → 端到端连通性验证
+- `scripts/start_nanobot.sh`: 一键启动脚本（生成 config + 检查 serve_ppo + 启动 nanobot gateway）
+- 配置要点: `provider=custom`, `apiBase=http://localhost:8000/v1`, `apiKey=no-key`（本地服务无需认证）
+
+#### T2: Agent rollout 生成器
+- `trainable_openclaw/agent/rollout.py`: 使用 nanobot + 外部 LLM 生成训练 rollout
+  - `NanobotRolloutGenerator.generate_rollouts()` — 每个 prompt 启动 N 个 nanobot agent，带 filesystem+shell 工具自我验证代码
+  - `generate_simple()` — 无 agent 工具的纯 LLM 生成（更快，适合作数据增强）
+  - `make_training_pool()` — 转换 rollout 输出为 serve_ppo `_training_pool` 格式
+  - Agent 模板要求: 写代码 → 运行测试 → 修 bug → 返回最终代码
+- 用途: serve_ppo 训练期间 vLLM 休眠，nanobot+DeepSeek 替代生成高质量代码
+
+#### T3: 日志系统兼容
+- `trainable_openclaw/agent/log_bridge.py`: nanobot SessionManager (JSONL) ↔ ConversationStore (SQLite) 双写桥
+  - `wrap_session_manager()` — monkey-patch `SessionManager.save()`，写入 JSONL 同时同步 SQLite
+  - `sync_from_nanobot()` — 离线批量导入 nanobot sessions → SQLite
+  - `export_to_nanobot()` — 反向导出 SQLite session → nanobot JSONL 格式
+  - `_load_nanobot_session()` / `_import_session()` — JSONL 解析器
+
+#### 测试
+- `scripts/test_phase4.py`: 6 项集成测试（config生成、serve_ppo健康检查、log同步、live wrap、rollout生成、training pool创建）
+  - `--quick` 模式跳过 API 依赖测试
+  - Windows 上 6/6 通过，154 已有单测全部通过（无回归）
+
+#### 集成架构
+
+```
+  ┌─────────────┐     ┌──────────────────┐     ┌──────────────┐
+  │  nanobot    │────▶│  serve_ppo API   │────▶│  vLLM        │
+  │  (gateway)  │     │  :8000/v1        │     │  Qwen3-4B    │
+  │  :18790     │     └────────┬─────────┘     └──────────────┘
+  └──────┬──────┘              │
+         │                     │ (idle→training)
+         ▼                     ▼
+  ┌──────────────┐    ┌──────────────────┐
+  │ SessionMgr   │    │ NanobotRollout   │
+  │ (JSONL)      │    │ Generator        │
+  └──────┬───────┘    │ + DeepSeek API   │
+         │            └──────────────────┘
+         ▼
+  ┌──────────────┐
+  │ LogBridge    │
+  │ (SQLite)     │
+  └──────────────┘
+```
+
+### 新增文件
+
+| 文件 | 说明 |
+|------|------|
+| `trainable_openclaw/agent/__init__.py` | Phase 4 agent 模块初始化 |
+| `trainable_openclaw/agent/nanobot_adapter.py` | T1: nanobot 适配层 |
+| `trainable_openclaw/agent/rollout.py` | T2: Agent rollout 生成器 |
+| `trainable_openclaw/agent/log_bridge.py` | T3: JSONL ↔ SQLite 日志桥 |
+| `scripts/start_nanobot.sh` | 一键启动 nanobot + serve_ppo |
+| `scripts/test_phase4.py` | 6 项集成测试 |
+
+### 远程部署待办
+1. 上传新增文件到远程 Linux GPU 机器
+2. 安装 nanobot 依赖: `pip install loguru pydantic pydantic-settings typer rich tiktoken`
+3. 启动 serve_ppo: `bash scripts/start_train.sh`
+4. 启动 nanobot gateway: `bash scripts/start_nanobot.sh`
+5. 验证: 浏览器访问 `http://<host>:18790/webui/`
+6. 测试 rollout 生成: `python scripts/test_phase4.py`（需 DEEPSEEK_API_KEY）
+
+### Git 状态
+- 6 个新文件未提交
+- 154 个已有测试全部通过，无回归
