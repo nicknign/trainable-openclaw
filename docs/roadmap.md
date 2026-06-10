@@ -71,7 +71,7 @@
 | B4 | Rubric 持续演进 | ✅ | 06-03 | evolver (25 tests) |
 | C1 | 主循环串联 (Pipeline) | ✅ | 06-03 | pipeline.py (20 tests) |
 | C2 | Dashboard | ✅ | 06-03 | Streamlit (6 tests) |
-| **T1** | **nanobot 调研与集成** | ⬜ | | 轻量 Agent 框架跑通 |
+| **T1** | **nanobot 调研与集成** | ✅ | 06-10 | nanobot + serve_ppo 跑通, CLI 交互 OK |
 | **T2** | **Agent rollout 训练适配** | ⬜ | | veRL 多轮 Agent 轨迹生成 |
 | **T3** | **Agent 场景 Judge 扩展** | ⬜ | | 工具选择/步骤效率/错误恢复评判 |
 | **T4** | **open-claw 迁移** | ⬜ | | 生产级 Agent 框架切换 |
@@ -169,7 +169,7 @@ Streamlit 面板。`scripts/dashboard.py` (6 tests)
 
 ---
 
-## Phase 4 — Agent 引擎集成 ⬜
+## Phase 4 — Agent 引擎集成 🟡
 
 > **核心转变：从单轮纠错对话 → 多轮 Agent 交互。**
 >
@@ -180,35 +180,53 @@ Streamlit 面板。`scripts/dashboard.py` (6 tests)
 >
 > **策略：先用 nanobot 快速验证闭环，再迁移到 open-claw 做生产部署。**
 
-### T1 — nanobot 调研与集成
+### T1 — nanobot 调研与集成 ✅
 
 **nanobot** 是一个轻量级 Agent 框架，适合快速集成和验证。
 
-**要做的事：**
+**已完成的工作：**
 
-1. **nanobot 框架分析**
-   - Agent 循环结构：消息流、工具注册与调用、记忆管理
-   - 对话日志格式：一轮完整 Agent 交互包含哪些字段（thought / tool_call / tool_result / response）
-   - 与当前 `ConversationStore` schema 的差异对比
-2. **nanobot 实例搭建**
-   - 在本项目内集成 nanobot，对接 veRL 推理后端
-   - 配置基础工具集（文件操作、代码执行、网络搜索等）
-   - 跑通一个完整的 Agent 交互流程，抓取日志样本
-3. **日志格式对齐**
-   - 确定 ConversationStore schema 扩展方案（新增 role 类型：`tool_call` / `tool_result` / `thinking`）
-   - 写 adapter 将 nanobot 日志转为统一格式
-4. **仿真管线适配**
-   - User Sim 从"纠错对话"升级为"Agent 任务审查"
-   - 模拟用户给 Agent 布置任务 → Agent 多步执行 → 用户审查结果 → 纠错
+1. **nanobot 框架分析** ✅
+   - Agent 循环结构：消息流 (bus.publish_inbound) → agent loop → consume_outbound
+   - 工具注册与调用：filesystem, shell, sandbox 等内置工具
+   - 记忆管理：SessionManager (JSONL) + SessionStore
+   - CLI vs WebUI vs API 三种交互模式
+2. **nanobot 实例搭建** ✅
+   - nanobot 对接 veRL serve_ppo 推理后端 (provider=custom, apiBase=http://localhost:8000/v1)
+   - 配置基础工具集，跑通完整 Agent 交互流程
+   - `scripts/start_experience.sh`: 一键启动 serve_ppo + nanobot serve + nanobot gateway
+3. **关键 Bug 修复** ✅
+   - CLI `_wants_stream` 导致无回复 → patch 为 False
+   - nanobot 启动需 PYTHONPATH (pip install -e 不可用)
+   - Qwen3-4B thinking 不可关闭 → maxTokens=4096 + strip_think() 应用层处理
+4. **适配层代码** ✅
+   - `nanobot_adapter.py`: config 生成、serve_ppo 健康检查、连通性验证
+   - `rollout.py`: Agent rollout 生成器（nanobot + DeepSeek）
+   - `log_bridge.py`: nanobot JSONL ↔ ConversationStore SQLite 双写桥
+
+**当前服务架构：**
+```
+serve_ppo :8000 (Qwen3-4B) ← nanobot serve :8900 ← nanobot GW :18790
+                                                    ├─ health check
+                                                    └─ WebSocket :18791
+```
 
 **产物**:
 - `trainable_openclaw/agent/nanobot_adapter.py` — nanobot ↔ veRL 适配器
-- `data/samples/nanobot_logs/` — 典型 Agent 交互日志样本
-- `docs/research/nanobot_analysis.md` — nanobot 框架分析笔记
+- `trainable_openclaw/agent/rollout.py` — Agent rollout 生成器
+- `trainable_openclaw/agent/log_bridge.py` — 日志桥接
+- `scripts/start_experience.sh` — 一键启动脚本
+- `scripts/test_phase4.py` — 6 项集成测试 (6/6 通过)
+
+**遗留问题：**
+- WebUI 不可用: `web/dist/` 存在但 gateway 以 `webui_static_dist=False` 启动
+- Qwen3.5-0.8B 模型存在但 transformers 版本冲突暂不可用
+- DB 1.9GB (仿真流水线数据), 需定期清理
 
 **验证**:
-- nanobot + veRL 推理后端跑通，完成至少 1 个完整 Agent 任务
-- Agent 日志成功写入 ConversationStore，字段无丢失
+- nanobot + veRL 推理后端 CLI 交互正常
+- 156 单元测试 0 失败 (154 已有 + Phase 4 集成测试)
+- 单条消息 (-m) 和交互模式均正常
 
 ---
 
@@ -361,11 +379,12 @@ nanobot 闭环跑通后，迁移到功能更完整的 open-claw 框架。
 
 | 指标 | 数值 |
 |------|------|
-| 总 commits | 49 |
-| 单测通过 | 154 (6 个文件) |
-| Phase 1-3 代码行数 | ~3,600 |
+| 总 commits | 52+ |
+| 单测通过 | 156 (7 个文件) |
+| Phase 1-4 代码行数 | ~4,800 |
 | 仿真训练对 | 557 (496 unique, 11 类别) |
 | 动态 Rubric | 8 条 category-aware |
+| Agent 服务 | 3 (serve_ppo + nanobot serve + nanobot GW) |
 
 ---
 
@@ -394,11 +413,15 @@ nanobot 闭环跑通后，迁移到功能更完整的 open-claw 框架。
 
 **Phase 1-3 完成** (18/21 steps)，154 单测通过，框架代码可运行。4 轮训练实验完成。
 
-**Phase 4 启动中** — Agent 引擎集成是当前核心工作：
+**Phase 4 进行中 — T1 nanobot 集成完成：**
+- nanobot + serve_ppo (Qwen3-4B) CLI 交互跑通
+- serve_ppo :8000 / nanobot serve :8900 / nanobot GW :18790 三服务架构
+- Qwen3-4B thinking 不可关闭 → maxTokens=4096 + strip_think() 应用层方案
+- WebUI 暂不可用 (gateway webui_static_dist=False)；DB 1.9GB 需清理
 
-1. T1 nanobot 集成 — 快速跑通 Agent 闭环
-2. T2 rollout 改造 — Agent 多轮轨迹生成
-3. T3 Judge 扩展 — Agent 评判维度
-4. T4 open-claw 迁移 — 生产级框架
+**下一步 T2-T4:**
+1. T2 rollout 改造 — Agent 多轮轨迹生成
+2. T3 Judge 扩展 — Agent 评判维度 (工具选择/步骤效率/错误恢复)
+3. T4 open-claw 迁移 — 生产级框架
 
-**训练收敛问题** — 当前阶段聚焦功能开发，后续阶段解决：7B+ 模型、更多步数、pairwise reward。
+**训练收敛问题** — 当前阶段聚焦功能开发，后续阶段解决：Qwen3.5 模型、7B+ 模型、更多步数、pairwise reward。

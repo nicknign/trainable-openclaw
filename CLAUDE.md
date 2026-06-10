@@ -805,3 +805,56 @@ python -m nanobot agent --config /root/.nanobot/config.json
 4. **WebSocket 安全策略**: 绑定 0.0.0.0 需要 token_issue_secret → 改为 127.0.0.1
 5. **WebUI dist 缺失**: 源码不包含 webui/dist（需 bun build），实际体验用 API + CLI 模式
 6. **缺失依赖**: dulwich (GitStore), aiohttp (API server) 手动安装
+
+---
+
+## 2026/06/10 (下午) — nanobot CLI 修复 + Qwen3 thinking 模式调研
+
+### CLI 交互模式不显示回复 — 修复
+
+- **现象**: `python -m nanobot agent` 交互模式下输入消息后无回复显示
+- **根因**: `nanobot-0.2.1/nanobot/cli/commands.py:1514` 的 `metadata={"_wants_stream": True}` 导致响应走 streaming delta 路径，`_streamed` 标记使 CLI consumer 跳过 `turn_response`
+- **修复**: `_wants_stream: True` → `False`（sed 直接修改远程文件）
+- **验证**: CLI 交互模式正常显示回复
+
+### nanobot 启动修复
+
+- **问题**: `nohup /data/anaconda3/bin/python -m nanobot ...` 报 "No module named nanobot"
+- **修复**: 启动命令添加 `PYTHONPATH=/data/wangye/trainable-openclaw/nanobot-0.2.1:$PYTHONPATH`
+
+### Qwen3-4B thinking 模式调查
+
+- **结论: Qwen3-4B 的 `<think>` 输出无法在模型层面关闭**
+  - `chat_template_kwargs: {"enable_thinking": false}` 改变了 prompt 模板（添加 `<think>\n\n</think>\n\n`），但模型仍生成自己的 `<think>` 块
+  - 模型有专用 think token (151667 `<think>`, 151668 `</think>`)，训练时强制输出思考过程
+- **实际影响**: max_tokens=200 时模型把全部 token 花在 thinking 上，`</think>` 永不闭合 → nanobot `strip_think()` 返回空字符串
+- **解决方案**: 
+  - maxTokens 提升至 **4096** — 模型有足够空间完成 thinking 并输出内容
+  - nanobot `strip_think()` 正确移除 `<think>...</think>` 块，CLI 显示干净回复
+  - 移除无效的 `extraBody: {"chat_template_kwargs": {"enable_thinking": false}}`
+- **Qwen3.5-0.8B**: 存在于 `/data/models/Qwen3.5-0.8B`，其 chat template 正确支持 `enable_thinking` 控制（Qwen3.5 `<think>` 放在 prompt 中，模型只生成 `</think>` + 内容）。但需要 transformers 5.x（qwen3_5 模型类型），与 vLLM 0.18.1 的 `transformers<5` 冲突。升级 transformers 后 vLLM 仍可 import，但 serve_ppo 启动后 API 无响应（端口未监听），根本原因待查。
+
+### 当前服务配置
+
+```
+serve_ppo :8000  — Qwen3-4B + LoRA rank=16, idle_timeout=999999 (纯推理)
+nanobot serve :8900 — OpenAI-compatible API (PYTHONPATH 启动)
+nanobot GW :18790 — health check + WebSocket :18791
+```
+
+- **Config**: maxTokens=4096, contextWindowTokens=32768, extraBody 已移除
+- **WebUI**: `nanobot/web/dist/` 存在但 gateway 以 `webui_static_dist=False` 启动，当前不可用
+- **CLI**: `_wants_stream: False` patch 生效，交互正常
+
+### 日志状态
+
+- **DB**: `data/conversations.db` — 1.9GB, 248K sessions / 497K messages
+- 绝大多数为仿真流水线数据（`anonymous` 用户 + 系统提示词），用户的 CLI 聊天混在其中
+- 日志记录正常（role/content/token_count/latency 等字段完整）
+
+### 关键经验
+
+- Qwen3-4B 的 thinking 是写死在模型里的，应用层处理（`strip_think()` + 充足 max_tokens）是务实方案
+- nanobot 源码分发不含 webui/dist（需 bun build），生产部署需提前构建
+- nanobot 启动时必须带 `PYTHONPATH` 指向源码目录（pip install -e 不可用）
+- `exec_command` 不适合后台 nohup 命令（会阻塞读 stdout），应用 `open_session().exec_command()` 并立即关闭 channel

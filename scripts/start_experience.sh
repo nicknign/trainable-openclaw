@@ -117,7 +117,7 @@ cat > "$CONFIG_FILE" << EOFCFG
       "model": "qwen3-4b",
       "provider": "custom",
       "maxTokens": 4096,
-      "contextWindowTokens": 8192,
+      "contextWindowTokens": 32768,
       "temperature": 0.7,
       "maxToolIterations": 50,
       "maxConcurrentSubagents": 4,
@@ -170,7 +170,7 @@ echo ""
 echo "[5/5] Starting nanobot..."
 
 # API server (OpenAI-compatible, port 8900)
-nohup $PYTHON -m nanobot serve \
+PYTHONPATH="$NANOBOT_SRC:$PYTHONPATH" nohup $PYTHON -m nanobot serve \
     --config "$CONFIG_FILE" \
     --host 127.0.0.1 --port $NANOBOT_API_PORT \
     > /tmp/nanobot_api.log 2>&1 &
@@ -178,7 +178,7 @@ API_PID=$!
 echo "  API PID: $API_PID (log: /tmp/nanobot_api.log)"
 
 # Gateway (health + websocket, port 18790)
-nohup $PYTHON -m nanobot gateway \
+PYTHONPATH="$NANOBOT_SRC:$PYTHONPATH" nohup $PYTHON -m nanobot gateway \
     --config "$CONFIG_FILE" \
     --port $NANOBOT_GW_PORT \
     > /tmp/nanobot_gateway.log 2>&1 &
@@ -209,7 +209,7 @@ echo "      -d '{\"model\":\"qwen3-4b\",\"messages\":[{\"role\":\"user\",\"conte
 echo ""
 echo "  CLI chat (interactive):"
 echo "    cd /data/wangye/trainable-openclaw"
-echo "    $PYTHON -m nanobot agent --config $CONFIG_FILE"
+echo "    PYTHONPATH=$NANOBOT_SRC:\$PYTHONPATH $PYTHON -m nanobot agent --config $CONFIG_FILE"
 echo ""
 echo "  Logs:"
 echo "    serve_ppo:  tail -f /tmp/serve_ppo_experience.log"
