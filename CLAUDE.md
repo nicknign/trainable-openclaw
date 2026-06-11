@@ -75,61 +75,99 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 # 多 Agent 协作模式
 
-本项目使用 5 个自定义 subagent 分工协作。由主 agent (Claude Code) 担任调度者，主动识别任务类型并派发给对应的专业 agent。
+本项目使用 5 个自定义 subagent 分工协作。由主 agent (Claude Code) 担任调度者，但子 agent 之间也可通过消息系统直接通信。
 
 ## Agent 分工表
 
 | Agent | 模型 | 职责 | 触发场景 |
 |-------|------|------|----------|
-| **research-scout** | opus | ML 文献检索、数据集发现、实验设计建议 | 找论文、找数据集、技术调研、竞品分析 |
-| **disciplined-coder** | sonnet | 代码编写/重构/调试，严格遵循本文件四大原则 | 非平凡代码改动、新功能实现、bug 修复、重构 |
-| **e2e-code-tester** | sonnet | 集成测试、鲁棒性验证、跨组件端到端验证 | coder 完成一个逻辑模块后，验证整体功能和边界情况 |
-| **research-experiment-planner** | sonnet | 算法分析、实验协议设计、训练诊断、超参数调优 | 设计实验方案、诊断训练问题、分析 reward 曲线 |
-| **academic-content-writer** | sonnet | 学术论文、技术博客、社交媒体宣传 | 里程碑达成后撰写论文/博客/推文推广 |
+| **research-experiment-planner** | sonnet | 制定开发计划、算法分析、实验设计、训练诊断 | 新功能/新实验开始前制定 plan，诊断训练问题 |
+| **research-scout** | opus | ML 文献检索、数据集发现 | planner 需要调研时调用，或主 agent 需要文献时触发 |
+| **disciplined-coder** | sonnet | 按 plan 编码实现、编写单元测试、Linux 调试 | 有 plan 后实现代码，收到 bug report 后修复 |
+| **e2e-code-tester** | sonnet | 端到端测试、集成验证、bug 报告 | coder 完成模块后被通知，编写并执行 e2e 测试 |
+| **academic-content-writer** | sonnet | 学术论文、技术博客 | 主 agent 触发，收集实验结果和项目进展后撰写 |
 
-## 协作模式
+## 开发工作流
 
-### 串行流水线（有依赖关系）
+### 1. 制定计划（Plan First）
 
 ```
-research-scout (调研) → research-experiment-planner (实验设计) → disciplined-coder (实现) → e2e-code-tester (验证)
+主 agent 提出需求 → research-experiment-planner 制定 plan
+                      │
+                      ├─ 需要文献调研 → 发 task_request 给 research-scout
+                      │                  research-scout 返回 status_update
+                      │
+                      └─ 输出: plans/{feature}_plan.md
 ```
 
-### 并行分派（无依赖关系）
+每个具体功能实现前，**必须先由 planner 写出 `plans/xxx_plan.md`**，包含：
+- 目标与背景
+- 技术方案与架构
+- 实现步骤与验证标准
+- 依赖与风险
 
-当任务之间相互独立时，同时启动多个 agent 并行工作。例如：
-- 文献调研 + 数据集搜索 → 同时启动 2 个 research-scout
-- 多个模块的编码 → 同时启动多个 disciplined-coder
+### 2. 编码与测试循环
 
-### 主动调度原则
+```
+planner ──handoff──→ disciplined-coder (按 plan 实现 + 写单测)
+                            │
+                            │ 完成 → task_request → e2e-code-tester
+                            │                            │
+                            │        测试通过 ←── reply ─┤
+                            │                            │
+                            │   ←── task_request ────────┘ (发现 bug)
+                            │   (修复 bug) 
+                            │   ── task_request ────────→ (再次送测)
+                            │                            │
+                            └── 循环直至测试全部通过 ─────┘
+```
 
-主 agent 应**主动识别**当前任务适合哪个专业 agent，而非等待用户指令：
-- 用户要求写代码 → 自动派 disciplined-coder
-- coder 完成模块 → 自动派 e2e-code-tester
-- 用户讨论实验方向 → 自动派 research-experiment-planner
-- 用户问"有什么新方法" → 自动派 research-scout
-- 重大功能完成 → 主动派 academic-content-writer 撰写宣传
+- coder 按 plan 编写代码 + 单元测试
+- coder 完成后通过消息系统通知 tester
+- tester 编写端到端测试，运行完整功能测试
+- 有 bug → tester 发 `task_request` 给 coder → coder 修复 → 再次送测
+- **循环往复直至所有测试通过**
 
-### 子 Agent 间直接通信
+### 3. Linux 远程实验
 
-子 agent 之间可以通过文件消息系统直接通信，**无需每次都经过主 agent 中转**。消息存储在 `.claude/messages/{agent-name}/inbox/`。
+```
+disciplined-coder (Linux 调试)
+       ↕ (bug 修复 / 代码调整)
+research-experiment-planner (执行实验、观察结果、分析)
+```
 
-**核心原则：**
-- 每个 agent 在**会话开始时**检查自己 inbox 中的未读消息
-- 每个 agent 在**完成任务时**考虑是否需要通知下游 agent
-- 消息类型：`task_request`（派活）、`status_update`（汇报进展）、`question`（请求澄清）、`handoff`（移交工作）、`reply`（回复）
+- 代码部署到 Linux 后，coder 负责主要调试
+- experiment-planner 执行实验并观察训练曲线、收敛情况
+- 发现问题 → planner 反馈给 coder 修改代码
+- 持续迭代优化
 
-**典型触发场景：**
-- disciplined-coder 完成功能 → 自动发 `task_request` 给 e2e-code-tester
-- e2e-code-tester 发现 bug → 自动发 `task_request` 给 disciplined-coder
-- research-scout 找到论文 → 自动发 `status_update` 给 research-experiment-planner
-- research-experiment-planner 完成方案 → 自动发 `handoff` 给 disciplined-coder
+### 4. 文献撰写
+
+```
+主 agent 触发 → academic-content-writer
+                  │
+                  ├─ 收集各 agent 的实验结果
+                  ├─ 汇总项目进展
+                  └─ 撰写论文/博客/推文
+```
+
+文献 agent **仅由主 agent 触发**，不参与日常开发循环。
+
+## 并行分派
+
+当任务之间相互独立时，同时启动多个 agent 并行工作。
+
+## 子 Agent 间直接通信
+
+通过 `.claude/messages/{agent-name}/inbox/` 文件消息系统：
+
+**消息类型：** `task_request` | `status_update` | `question` | `handoff` | `reply`
 
 **工具：**
 ```bash
-python scripts/agent_message.py send --to AGENT --type TYPE --subject "..." --body "..."
-python scripts/agent_message.py check --agent AGENT --unread-only
-python scripts/agent_message.py list-agents
+python .claude/agent_message.py send --to AGENT --type TYPE --subject "..." --body "..."
+python .claude/agent_message.py check --agent AGENT --unread-only
+python .claude/agent_message.py list-agents
 ```
 
 详细协议：`.claude/messages/PROTOCOL.md`

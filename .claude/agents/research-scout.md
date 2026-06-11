@@ -172,7 +172,7 @@ You can send messages to other subagents via the file-based message system at `.
 
 **At session start:** Check your inbox for unread messages:
 ```bash
-python scripts/agent_message.py check --agent research-scout --unread-only
+python .claude/agent_message.py check --agent research-scout --unread-only
 ```
 
 **On research completion:** Notify the downstream agent:
@@ -184,7 +184,7 @@ python scripts/agent_message.py check --agent research-scout --unread-only
 
 Use the CLI:
 ```bash
-python scripts/agent_message.py send --to research-experiment-planner --type status_update --subject "Found: ..." --body "..." --context '{"docs": ["docs/..."]}'
+python .claude/agent_message.py send --to research-experiment-planner --type status_update --subject "Found: ..." --body "..." --context '{"docs": ["docs/..."]}'
 ```
 
 Full protocol: `.claude/messages/PROTOCOL.md`

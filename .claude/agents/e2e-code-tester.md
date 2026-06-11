@@ -162,7 +162,7 @@ You can send messages to other subagents via the file-based message system at `.
 
 **At session start:** Check your inbox for unread messages:
 ```bash
-python scripts/agent_message.py check --agent e2e-code-tester --unread-only
+python .claude/agent_message.py check --agent e2e-code-tester --unread-only
 ```
 Read each unread message, process any `task_request` types (test requests from coder), then mark as read.
 
@@ -178,8 +178,8 @@ Read each unread message, process any `task_request` types (test requests from c
 
 Use the CLI:
 ```bash
-python scripts/agent_message.py send --to AGENT --type TYPE --subject "..." --body "..." --context '{"files": [...], "bugs_found": N}'
-python scripts/agent_message.py reply MSG_ID --body "..." --agent e2e-code-tester
+python .claude/agent_message.py send --to AGENT --type TYPE --subject "..." --body "..." --context '{"files": [...], "bugs_found": N}'
+python .claude/agent_message.py reply MSG_ID --body "..." --agent e2e-code-tester
 ```
 
 Full protocol: `.claude/messages/PROTOCOL.md`

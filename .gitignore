@@ -37,3 +37,4 @@ references/
 !.claude/agents/
 !.claude/messages/
 !.claude/agent-memory/
+!.claude/agent_message.py

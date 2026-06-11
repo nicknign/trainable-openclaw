@@ -1,7 +1,7 @@
 # Inter-Agent Communication Protocol
 
 File-based message passing between Claude Code subagents.
-No daemon — agents use `scripts/agent_message.py` to send/check/reply.
+No daemon — agents use `.claude/agent_message.py` to send/check/reply.
 
 ## Directory Structure
 
@@ -55,7 +55,7 @@ Each message is a JSON file named `{timestamp_ms}-{short_uuid}.json`:
 
 ```bash
 # Send a message
-python scripts/agent_message.py send \
+python .claude/agent_message.py send \
   --to AGENT_NAME \
   --type TYPE \
   --subject "..." \
@@ -64,19 +64,19 @@ python scripts/agent_message.py send \
   [--from-agent SENDER]
 
 # Check inbox
-python scripts/agent_message.py check [--agent AGENT] [--unread-only]
+python .claude/agent_message.py check [--agent AGENT] [--unread-only]
 
 # Read a message
-python scripts/agent_message.py read MSG_ID [--agent AGENT]
+python .claude/agent_message.py read MSG_ID [--agent AGENT]
 
 # Mark as read
-python scripts/agent_message.py mark-read MSG_ID [--agent AGENT]
+python .claude/agent_message.py mark-read MSG_ID [--agent AGENT]
 
 # Reply to a message
-python scripts/agent_message.py reply MSG_ID --body "..." [--agent AGENT]
+python .claude/agent_message.py reply MSG_ID --body "..." [--agent AGENT]
 
 # List all agents and unread counts
-python scripts/agent_message.py list-agents
+python .claude/agent_message.py list-agents
 ```
 
 ## Agent Communication Rules
@@ -84,7 +84,7 @@ python scripts/agent_message.py list-agents
 ### 1. Check inbox at session start
 Before starting assigned work, check your inbox:
 ```bash
-python scripts/agent_message.py check --agent YOUR_NAME --unread-only
+python .claude/agent_message.py check --agent YOUR_NAME --unread-only
 ```
 
 ### 2. Process messages FIFO

@@ -109,7 +109,7 @@ You can send messages to other subagents via the file-based message system at `.
 
 **At session start:** Check your inbox for unread messages:
 ```bash
-python scripts/agent_message.py check --agent disciplined-coder --unread-only
+python .claude/agent_message.py check --agent disciplined-coder --unread-only
 ```
 Read each unread message, process any `task_request` or `question` types, then mark as read.
 
@@ -125,9 +125,9 @@ Read each unread message, process any `task_request` or `question` types, then m
 
 Use the CLI:
 ```bash
-python scripts/agent_message.py send --to AGENT --type TYPE --subject "..." --body "..." --context '{"files": [...], "branch": "main"}'
-python scripts/agent_message.py mark-read MSG_ID --agent disciplined-coder
-python scripts/agent_message.py reply MSG_ID --body "..." --agent disciplined-coder
+python .claude/agent_message.py send --to AGENT --type TYPE --subject "..." --body "..." --context '{"files": [...], "branch": "main"}'
+python .claude/agent_message.py mark-read MSG_ID --agent disciplined-coder
+python .claude/agent_message.py reply MSG_ID --body "..." --agent disciplined-coder
 ```
 
 Full protocol: `.claude/messages/PROTOCOL.md`

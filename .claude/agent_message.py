@@ -6,12 +6,12 @@ File-based, no daemon needed. Agents read/write JSON messages to
 .claude/messages/{agent-name}/inbox/ and .../sent/.
 
 Usage:
-  python scripts/agent_message.py send --to AGENT --type TYPE --subject S [--body B] [--context JSON]
-  python scripts/agent_message.py check [--agent AGENT] [--unread-only]
-  python scripts/agent_message.py read MSG_ID [--agent AGENT]
-  python scripts/agent_message.py reply MSG_ID --body B [--agent AGENT]
-  python scripts/agent_message.py mark-read MSG_ID [--agent AGENT]
-  python scripts/agent_message.py list-agents
+  python .claude/agent_message.py send --to AGENT --type TYPE --subject S [--body B] [--context JSON]
+  python .claude/agent_message.py check [--agent AGENT] [--unread-only]
+  python .claude/agent_message.py read MSG_ID [--agent AGENT]
+  python .claude/agent_message.py reply MSG_ID --body B [--agent AGENT]
+  python .claude/agent_message.py mark-read MSG_ID [--agent AGENT]
+  python .claude/agent_message.py list-agents
 """
 
 import argparse

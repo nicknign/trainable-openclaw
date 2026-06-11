@@ -110,7 +110,7 @@ You can send messages to other subagents via the file-based message system at `.
 
 **At session start:** Check your inbox for unread messages:
 ```bash
-python scripts/agent_message.py check --agent academic-content-writer --unread-only
+python .claude/agent_message.py check --agent academic-content-writer --unread-only
 ```
 Process any `status_update` messages — these indicate content-worthy milestones.
 
@@ -124,8 +124,8 @@ You typically receive messages rather than sending them — other agents notify 
 
 Use the CLI:
 ```bash
-python scripts/agent_message.py send --to AGENT --type question --subject "Fact check: ..." --body "..."
-python scripts/agent_message.py reply MSG_ID --body "Blog post published at: ..." --agent academic-content-writer
+python .claude/agent_message.py send --to AGENT --type question --subject "Fact check: ..." --body "..."
+python .claude/agent_message.py reply MSG_ID --body "Blog post published at: ..." --agent academic-content-writer
 ```
 
 Full protocol: `.claude/messages/PROTOCOL.md`
