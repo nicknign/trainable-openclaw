@@ -32,3 +32,4 @@ papers*
 
 # Local reference checkouts (large external repos, not part of project source)
 references/
+.claude/

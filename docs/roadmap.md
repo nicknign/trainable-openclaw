@@ -43,7 +43,7 @@
 | Phase 1.5 | 数据工程与模拟测试环境 | 🟡 S4 待做 |
 | Phase 2 | 自进化评判系统 | ✅ 完成 |
 | Phase 3 | 集成与 Dashboard | ✅ 完成 |
-| **Phase 4** | **Agent 引擎集成** | **⬜ 新阶段** |
+| **Phase 4** | **Agent 引擎集成** | **🟡 T1 完成, T2 详细计划已出** |
 | Phase 5 | 生产环境评估 | 🟡 D3 远期 |
 
 ---
@@ -71,8 +71,14 @@
 | B4 | Rubric 持续演进 | ✅ | 06-03 | evolver (25 tests) |
 | C1 | 主循环串联 (Pipeline) | ✅ | 06-03 | pipeline.py (20 tests) |
 | C2 | Dashboard | ✅ | 06-03 | Streamlit (6 tests) |
-| **T1** | **nanobot 调研与集成** | ✅ | 06-10 | nanobot + serve_ppo 跑通, CLI 交互 OK |
-| **T2** | **Agent rollout 训练适配** | ⬜ | | veRL 多轮 Agent 轨迹生成 |
+| **R1** | **MUA-RL 调研** | ✅ | 06-12 | loss masking + 稀疏奖励, 互补不重复 |
+| **T1** | **nanobot 调研与集成** | ✅ | 06-10 | WebUI 修复 + strip_think patch |
+| **T2.1** | **Loss Masking 移植** | ⬜ | | ~200行, 防 reward hacking |
+| **T2.2** | **稀疏二元奖励** | ⬜ | | ~100行, 可验证任务 0/1 |
+| **T2.3** | **场景+冷启动数据生成** | ⬜ | | 5场景, 500-1000条轨迹 |
+| **T2.4** | **SFT 冷启动训练** | ⬜ | | 混合数据源, 3 epoch |
+| **T2.5** | **Agent GRPO 训练** | ⬜ | | 16p×4r, loss masking |
+| **T2.6** | **Agent 评测** | ⬜ | | BFCL v4 + tau-bench |
 | **T3** | **Agent 场景 Judge 扩展** | ⬜ | | 工具选择/步骤效率/错误恢复评判 |
 | **T4** | **open-claw 迁移** | ⬜ | | 生产级 Agent 框架切换 |
 | D1 | 测试集构建 | ✅ | 06-02 | 80 test prompts |
@@ -218,119 +224,181 @@ serve_ppo :8000 (Qwen3-4B) ← nanobot serve :8900 ← nanobot GW :18790
 - `scripts/start_experience.sh` — 一键启动脚本
 - `scripts/test_phase4.py` — 6 项集成测试 (6/6 通过)
 
-**遗留问题：**
-- WebUI 不可用: `web/dist/` 存在但 gateway 以 `webui_static_dist=False` 启动
+**已解决的问题：**
+- WebUI 回复正常: strip_think() 正则从 `r"^\s*<think>[\s\S]*$"` 改为 `r"^\s*<think>"` (只删除开标签，保留内容)
+- kill_and_restart.py: 强制杀进程 + 清 __pycache__ + 重打补丁 + 重启全部服务
+- Gateway 两端口架构确认: 18790 health check (TCP) + 18791 WebSocket + WebUI 静态文件
+
+**已知限制：**
 - Qwen3.5-0.8B 模型存在但 transformers 版本冲突暂不可用
 - DB 1.9GB (仿真流水线数据), 需定期清理
 
 **验证**:
-- nanobot + veRL 推理后端 CLI 交互正常
+- nanobot + veRL 推理后端 WebUI + CLI 交互正常
 - 156 单元测试 0 失败 (154 已有 + Phase 4 集成测试)
-- 单条消息 (-m) 和交互模式均正常
+- Gateway 空回复计数: 0 (strip_think patch 生效)
 
 ---
 
-### T2 — Agent rollout 训练适配
+### T2 — Agent Tool-Use 训练闭环 🟡
 
-**这是改造量最大的步骤。** 当前 veRL rollout 生成单轮回答 (`prompt → answer`)。Agent 训练需要生成多轮轨迹。
+> **参考**: MUA-RL (美团+中科院, arXiv 2508.18669, Apache 2.0) — 首个将模拟用户嵌入 GRPO 训练循环的工具使用框架。
+> 调研文档: `docs/mua-rl_research.md`
 
-**当前模式 (单轮):**
-```
-veRL receives: "写一个排序函数"
-veRL generates: "def sort(arr): ..."
-Judge scores this single answer
-```
+**策略：不追求一步到位做多轮 vLLM rollout（移植成本太高），分两步走——先用外部管线生成冷启动 SFT 数据 + 单轮 GRPO，再逐步引入 loss masking 和稀疏奖励。**
 
-**Agent 模式 (多轮):**
-```
-veRL receives: "帮我整理 Downloads 文件夹"
-veRL generates a trajectory:
-  ① thinking: "需要先列出文件，按类型分类"
-  ② tool_call: list_files("~/Downloads")
-  ③ tool_result: [file1.pdf, file2.txt, file3.jpg, ...]
-  ④ thinking: "有 3 种类型，分别移到对应文件夹"
-  ⑤ tool_call: move_file("file1.pdf", "~/Documents/PDFs")
-  ⑥ tool_call: move_file("file2.txt", "~/Documents/Texts")
-  ⑦ tool_call: move_file("file3.jpg", "~/Pictures")
-  ⑧ response: "已整理完成：3 个文件已按类型移动到对应文件夹"
+#### T2.1 — MUA-RL Loss Masking 移植
 
-Judge scores the ENTIRE trajectory:
-  - 工具选择: ✅ list_files + move_file 合理
-  - 步骤效率: ⚠️ 逐个 move_file，应该批量
-  - 错误处理: ⚠️ 没有检查文件是否已存在
-```
+MUA-RL 已证明 loss masking 能防止 reward hacking（背工具输出、抄袭用户语言、刷长度）。迁移到 serve_ppo：
 
-**要做的事：**
+- [ ] 在 serve_ppo rollout 阶段追踪 token 来源（agent 生成 / 工具返回 / 用户消息）
+- [ ] 生成时维护 `loss_mask` 列表：agent token=1，工具 token=0，用户 token=0
+- [ ] 批处理时拼接 `prompt_loss_mask` + `response_loss_mask`
+- [ ] `ray_trainer.py` 添加多轮模式切换：`response_mask = loss_mask`（替代 attention_mask）
+- [ ] `dp_actor.py` policy gradient loss 仅对 `loss_mask=1` 的 token 计算
+- [ ] 改动量: ~200 行 Python，风险低
 
-1. **Agent 训练数据构造**
-   - 用 nanobot + User Sim 生成 Agent 训练轨迹
-   - 数据格式：`(task, trajectory, user_feedback)` 三元组
-   - 轨迹包含多步 thought/tool_call/tool_result/response
-2. **veRL rollout 改造**
-   - serve_ppo 的 `_train_bridge` 支持 multi-turn rollout
-   - 每步训练时，让 veRL 生成完整的 Agent 轨迹（而非单次回答）
-   - 轨迹生成需要 tool execution 环境（sandbox / mock tools）
-3. **奖励信号设计**
-   - trajectory-level reward：整条轨迹的质量评分
-   - step-level reward：每一步的工具选择/推理质量
-   - 组合方式：mean / weighted / outcome-only
-4. **训练数据格式标准化**
-   - 定义 Agent 训练数据的标准 schema
-   - 兼容 nanobot 和后续 open-claw 的日志格式
+**产物**: serve_ppo.py 内 loss_mask 追踪 + 训练时切换
+
+**验证**: 检查 loss_mask=0 的 token 在反向传播中贡献零梯度
+
+#### T2.2 — 稀疏二元奖励
+
+参考 MUA-RL 的奖励设计，在可验证任务上给 0/1 奖励：
+
+- [ ] `reward_bridge.py` 新增 `compute_binary_reward()` 函数
+- [ ] 可验证任务类型：代码执行（exit code=0）、文件状态（diff hash 匹配）、搜索准确性（URL/内容匹配）
+- [ ] 不可验证任务（写作、头脑风暴）保持 rubric 连续评分
+- [ ] 组合方式: `final = α * binary + (1-α) * rubric_mean`（默认 α=0.5）
+- [ ] 改动量: ~100 行 Python
+
+**产物**: `trainable_openclaw/training/reward_bridge.py` 内 binary reward 函数
+
+**验证**: 代码执行正确→reward=1, 执行错误→reward=0, rubric 正常降级
+
+#### T2.3 — Agent 场景设计与冷启动数据生成
+
+参考 MUA-RL 的 9 场景设计方法，为 nanobot 的 17 个工具设计任务场景：
+
+**5 个场景类别：**
+
+| 场景 | 覆盖工具 | 示例任务 | 占比 |
+|------|---------|---------|------|
+| 文件管理 | read_file, write_file, edit_file, grep, find_files, list_dir, exec | "把 Downloads 里所有 PDF 移到 Documents/PDFs 并生成文件清单" | 30% |
+| 信息检索 | web_search, web_fetch, grep, read_file | "查一下 PyTorch 2.6 的新特性，和当前安装版本做对比" | 25% |
+| 代码任务 | exec, write_file, edit_file, apply_patch, run_cli_app | "写一个 Python 脚本分析 access.log 找出 404 最多的 URL" | 25% |
+| 多步骤编排 | spawn, message, complete_goal, write_stdin | "同时搜索三个关键词，汇总结果后写报告" | 15% |
+| 系统管理 | cron, long_task, exec, list_dir | "设置一个定时任务每天备份 config 文件" | 5% |
+
+**冷启动数据生成流程：**
+1. 每个场景生成 100-200 个具体任务（DeepSeek-v4-flash 生成，人工抽查 20%）
+2. 用 DeepSeek-v4-flash 作为 expert agent + **真实 nanobot 工具** 执行每个任务
+3. 记录完整轨迹：`[{role, content, tool_calls?, tool_call_id?, name?}]`
+4. Rejection sampling: 只保留任务成功完成的轨迹（`complete_goal` 被调用且结果正确）
+5. 质量过滤: 用已有 rubric judge 评分，丢弃 < 0.7 的轨迹
+6. 目标: 500-1000 条高质量冷启动轨迹
+
+**工具 mock/真实执行策略：**
+- `exec`: 真实 shell 执行（sandbox 限制 `rm -rf /` 等危险操作）
+- `read_file/write_file/edit_file`: 真实文件系统操作（临时目录）
+- `web_search/web_fetch`: DeepSeek 模拟返回（避免真实网络调用耗时长）
+- `spawn/message/cron`: mock 返回（预定义响应）
 
 **产物**:
-- `trainable_openclaw/agent/rollout.py` — Agent 多轮 rollout 引擎
-- `trainable_openclaw/agent/training_data.py` — Agent 训练数据构造
-- `docs/design/agent_training.md` — Agent 训练方案设计文档
+- `data/agent_scenarios/` — 5 个场景的任务定义 (JSON)
+- `scripts/generate_agent_data.py` — 冷启动数据生成脚本
+- `data/agent_trajectories/train.jsonl` — 500-1000 条训练轨迹
+- `data/agent_trajectories/test.jsonl` — 50-100 条测试轨迹
 
 **验证**:
-- nanobot + veRL 完成 10 条 Agent 任务，生成完整轨迹
-- rollout 引擎能稳定生成 3+ 步的 Agent 轨迹
-- 轨迹日志可被 ConversationStore 完整记录
+- 每个场景生成 20 条 pilot 数据，确认工具调用格式正确
+- 轨迹平均 3+ 步工具调用
+- rejection sampling 通过率 > 60%
+
+#### T2.4 — SFT 冷启动训练
+
+用外部数据 + 自生成数据做 SFT warm-start：
+
+- [ ] 数据源混合：自生成轨迹 (70%) + SWE-smith 代码轨迹 (15%) + ToolACE 函数调用 (15%)
+- [ ] 格式统一: 转为 nanobot 消息格式 `[{role, content, tool_calls?, ...}]`
+- [ ] SFT 训练: Qwen3-4B + LoRA rank=16, lr=2e-5, 3 epochs, batch_size=8
+- [ ] 评估: 在测试集上验证模型生成的工具调用格式是否正确、参数是否合法
+
+**产物**: `scripts/run_agent_sft.sh` — SFT 训练脚本
+
+**验证**:
+- SFT 后模型能生成语法正确的 tool_call JSON
+- 工具选择准确率 > 60%（非代码场景）/ > 40%（代码场景）
+
+#### T2.5 — Agent GRPO 训练
+
+- [ ] 配置: 16p×4r=64, lr=1e-5, max_turns=15, max_model_len=12288, response_length=4096
+- [ ] 奖励: 稀疏二元 (α=0.5) + rubric 连续 (1-α=0.5)，启用 loss masking
+- [ ] 30 steps/round, 3-5 rounds
+- [ ] 每步保存 generation_samples 用于分析
+
+**产物**: `scripts/start_agent_train.sh` — Agent GRPO 训练脚本
+
+**验证**:
+- loss > 0（模型在学习）
+- reward 趋势稳定或上升
+- 无 "Empty response" 警告
+
+#### T2.6 — 评测
+
+- [ ] BFCL v4 多轮子集 (50 prompts) — 函数调用标准评测
+- [ ] tau-bench 零售子集 (30 prompts) — 多轮工具使用评测
+- [ ] 自有测试集 (50-100 prompts) — 回归检查
+- [ ] 对比: baseline (SFT only) vs GRPO round 1/2/3
+- [ ] 指标: 任务完成率 / 工具选择准确率 / 步骤效率 / 错误恢复率
+
+**产物**: `scripts/eval_agent.py` — Agent 评测脚本
+
+**T2 总验证 (门控):**
+- [ ] loss masking 生效（梯度验证）
+- [ ] 500+ 条冷启动轨迹生成
+- [ ] SFT 后工具调用格式正确率 > 60%
+- [ ] GRPO 训练任务完成率相比 SFT baseline 提升 > 5% 绝对值
+- [ ] 无回归: 自有测试集纠错率下降 < 5%
 
 ---
 
-### T3 — Agent 场景 Judge 扩展
+### T3 — Agent 场景 Judge 扩展 ⬜
 
-Agent 的评判维度与单轮对话完全不同。需要扩展 Rubric 体系和 Judge 能力。
+Agent 的评判维度与单轮对话完全不同。
 
-**当前 Judge 评判维度 (单轮对话):**
-- 事实准确性、逻辑正确性、完整性、格式规范、语言表达
+#### T3.1 — Agent Rubric 生成
 
-**Agent Judge 新增维度:**
+- [ ] 从 T2 生成的 Agent 轨迹中提取 agent 特有的错误模式
+- [ ] B2 RubricGenerator 扩展: 支持 agent 场景的新 prompt 模板
+- [ ] 6 个 agent 专用维度 → 3-5 条量化评分 rubric
+- [ ] 每条 rubric: 详细扣分规则 + JSON 输出格式 + max_tokens 动态缩放
 
-| 维度 | 说明 | 示例 |
-|------|------|------|
-| 工具选择合理性 | 是否选择了最合适的工具？有无更好替代？ | 用 `list_files` 而非 `ls` shell 命令 |
-| 步骤效率 | 是否有多余步骤？能否合并？ | 逐个移动文件 vs 批量移动 |
-| 错误恢复 | 工具失败后如何处理？ | 文件不存在 → 创建目录后重试 |
-| 信息充分性 | 执行前是否收集了足够信息？ | 移动前未检查目标路径是否存在 |
-| 安全边界 | 是否拒绝了危险操作？ | 拒绝 `rm -rf /` 并给出警告 |
-| 用户交互 | 不确定时是否询问用户？ | 文件重名时让用户选择覆盖/跳过 |
+**产物**: `trainable_openclaw/evaluation/agent_rubric.py`
 
-**要做的事：**
+**验证**: 3 条 agent rubric 可正确评分，优质轨迹 > 劣质轨迹（区分度 p<0.05）
 
-1. **Agent Rubric 生成**
-   - 从 Agent 轨迹反馈中提取 Agent 特有的错误模式
-   - B2 RubricGenerator 扩展：支持 Agent 场景的评分 prompt 模板
-   - 示例 Rubric: "工具选择合理性 — 检查 Agent 是否选用了最直接的工具完成任务，每处不当选择扣 2 分"
-2. **Agent User Sim 升级**
-   - User Sim 能审查 Agent 轨迹，指出具体的工具选择/步骤问题
-   - 模拟用户反馈："你为什么要逐个移动文件？用通配符一次搞定不就行了？"
-3. **Agent Judge 执行**
-   - B3 JudgeExecutor 扩展：输入从单条 answer → 整条 trajectory
-   - 轨迹评分 prompt 设计：如何把多步轨迹 + 工具调用上下文塞进评分 prompt
-4. **Agent Rubric 演进**
-   - B4 RubricEvolver 适配 Agent 场景的低分样本检测
+#### T3.2 — Agent Judge 执行
 
-**产物**:
-- `trainable_openclaw/evaluation/agent_rubric.py` — Agent 专用 Rubric 模板
-- `trainable_openclaw/evaluation/agent_judge.py` — Agent 轨迹评分器
-- `docs/design/agent_judge.md` — Agent Judge 设计文档
+- [ ] B3 JudgeExecutor 扩展: 输入从单条 answer → 整条 trajectory（多步 thought + tool_call + tool_result）
+- [ ] 轨迹评分 prompt 设计: 压缩工具调用上下文，保留关键步骤
+- [ ] 合并评分: 多个 rubric 合并为单次 API 调用（省费用）
+- [ ] Sync API: 兼容 Ray actor event loop
 
-**验证**:
-- 3 条 Agent Rubric 可正确评估 nanobot 轨迹
-- 优质轨迹得分 > 劣质轨迹得分 (区分度验证)
+**产物**: `trainable_openclaw/evaluation/agent_judge.py`
+
+**验证**: 10 条轨迹合并评分 < 5s, 无截断, 分数合理
+
+#### T3.3 — 与 T2 训练闭环集成
+
+- [ ] Agent Judge 替换 T2 训练中的 rubric 评分部分
+- [ ] Agent Rubric 演进 (B4): 低分轨迹触发 rubric 更新
+- [ ] 跑一轮完整训练 + 评测闭环
+
+**T3 总验证 (门控):**
+- [ ] Agent rubric 区分度验证通过
+- [ ] Agent judge 合并评分正常（无截断、无异常分数）
+- [ ] 训练闭环中 agent judge 稳定运行 (> 30 steps 无崩溃)
 
 ---
 
@@ -385,6 +453,7 @@ nanobot 闭环跑通后，迁移到功能更完整的 open-claw 框架。
 | 仿真训练对 | 557 (496 unique, 11 类别) |
 | 动态 Rubric | 8 条 category-aware |
 | Agent 服务 | 3 (serve_ppo + nanobot serve + nanobot GW) |
+| MUA-RL 调研 | `docs/mua-rl_research.md` |
 
 ---
 
@@ -411,17 +480,27 @@ nanobot 闭环跑通后，迁移到功能更完整的 open-claw 框架。
 
 ## 当前状态
 
-**Phase 1-3 完成** (18/21 steps)，154 单测通过，框架代码可运行。4 轮训练实验完成。
+**Phase 1-3 完成** (18/21 steps)，156 单测通过，框架代码可运行。4 轮训练实验完成。
 
-**Phase 4 进行中 — T1 nanobot 集成完成：**
-- nanobot + serve_ppo (Qwen3-4B) CLI 交互跑通
-- serve_ppo :8000 / nanobot serve :8900 / nanobot GW :18790 三服务架构
+**Phase 4 T1 完成，T2 详细计划已出：**
+- nanobot + serve_ppo (Qwen3-4B) WebUI + CLI 交互跑通，strip_think patch 生效
+- serve_ppo :8000 / nanobot serve :8900 / nanobot GW :18790 (+ WebSocket :18791) 三服务架构
 - Qwen3-4B thinking 不可关闭 → maxTokens=4096 + strip_think() 应用层方案
-- WebUI 暂不可用 (gateway webui_static_dist=False)；DB 1.9GB 需清理
+- **MUA-RL 调研完成** (`docs/mua-rl_research.md`) — loss masking + 稀疏二元奖励为 P0 优先迁移
 
-**下一步 T2-T4:**
-1. T2 rollout 改造 — Agent 多轮轨迹生成
-2. T3 Judge 扩展 — Agent 评判维度 (工具选择/步骤效率/错误恢复)
-3. T4 open-claw 迁移 — 生产级框架
+**当前焦点 — T2 Agent Tool-Use 训练闭环：**
 
-**训练收敛问题** — 当前阶段聚焦功能开发，后续阶段解决：Qwen3.5 模型、7B+ 模型、更多步数、pairwise reward。
+```
+T2.1 loss masking (~200行) → T2.2 稀疏奖励 (~100行) → T2.3 场景+数据生成 (500-1000条)
+  → T2.4 SFT 冷启动 → T2.5 GRPO 训练 → T2.6 评测 (BFCL v4 + tau-bench)
+```
+
+**为什么是这个顺序？**
+1. loss masking 和稀疏奖励是小改动、高收益的基础设施
+2. 冷启动数据生成需要调用 DeepSeek API（~$5-10），数据质量是后续训练的天花板
+3. SFT 先验证格式正确性，GRPO 再优化质量——分步验证，降低调试复杂度
+4. vLLM 多轮 rollout 移植成本太高，先用外部管线生成数据 + 单轮 GRPO 验证闭环
+
+**T3 Agent Judge 扩展** — T2 跑通后再启动，避免提前优化
+
+**训练收敛问题** — 长期方向：Qwen3.5 模型、7B+ 模型、更多步数、pairwise reward。当前阶段优先把 agent 训练闭环跑通，Qwen3-4B 容量问题不是当前瓶颈。

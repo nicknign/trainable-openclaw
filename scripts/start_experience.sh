@@ -12,7 +12,7 @@ SERVE_PORT="${SERVE_PORT:-8000}"
 NANOBOT_API_PORT="${NANOBOT_API_PORT:-8900}"
 NANOBOT_GW_PORT="${NANOBOT_GW_PORT:-18790}"
 GPU_MEM="${GPU_MEM:-0.4}"
-MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-12288}"
 PYTHON=/data/anaconda3/bin/python
 NANOBOT_SRC=/data/wangye/trainable-openclaw/nanobot-0.2.1
 
@@ -117,7 +117,7 @@ cat > "$CONFIG_FILE" << EOFCFG
       "model": "qwen3-4b",
       "provider": "custom",
       "maxTokens": 4096,
-      "contextWindowTokens": 32768,
+      "contextWindowTokens": 12288,
       "temperature": 0.7,
       "maxToolIterations": 50,
       "maxConcurrentSubagents": 4,
@@ -138,11 +138,11 @@ cat > "$CONFIG_FILE" << EOFCFG
     }
   },
   "gateway": {
-    "host": "127.0.0.1",
+    "host": "0.0.0.0",
     "port": ${NANOBOT_GW_PORT}
   },
   "api": {
-    "host": "127.0.0.1",
+    "host": "0.0.0.0",
     "port": ${NANOBOT_API_PORT}
   },
   "tools": {
@@ -154,11 +154,12 @@ cat > "$CONFIG_FILE" << EOFCFG
   "channels": {
     "websocket": {
       "enabled": true,
-      "host": "127.0.0.1",
+      "host": "0.0.0.0",
       "port": 18791,
       "path": "/",
       "allow_from": ["*"],
-      "streaming": true
+      "streaming": true,
+      "token_issue_secret": "dev-secret"
     }
   }
 }
