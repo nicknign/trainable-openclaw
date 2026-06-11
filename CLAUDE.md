@@ -116,3 +116,39 @@ research-scout (调研) → research-experiment-planner (实验设计) → disci
 - MUA-RL 调研: `docs/mua-rl_research.md`
 - 远程环境: memory `remote_env.md`
 - 项目状态: memory `project-phase4-status.md`
+
+---
+
+## 2026/06/12
+
+### Phase 1 完成：数据准备流水线
+
+**P1.4 — 反馈收集模块**: `trainable_openclaw/feedback/`
+- `signal_extractor.py`: Layer 2 用户反馈信号提取（20+ 中英文正则模式）
+- `deterministic_verifier.py`: Layer 1 确定性验证（工具格式/执行结果/危险操作/任务完成）
+- `reward_combiner.py`: 三层 reward 加权组合（L3=None 时权重自动重分配）
+- `tests/test_feedback.py`: 61 测试通过
+
+**P1.5 — 格式转换**: `scripts/convert_tau_bench.py`
+- 支持 5 个数据源：GPT-4o/Sonnet × airline/retail + APIGen
+- 统一训练样本格式（plan.md 定义），自动合成缺失 tool_call_id/name
+
+**P1.6 — 过滤拆分**: `scripts/filter_split_tau_bench.py`
+- Reward ≥ 0.5 过滤，domain-aware task_id 防泄漏
+- 使用 tau-bench 官方 train/test 分区
+
+**P1.7 — 数据验证**: `scripts/validate_tau_bench_data.py`
+- 25 项自动检查（UUID/字段完整性/tool调用格式/跨集泄漏），全部通过
+
+**产出**:
+- 训练集 `data/tau_bench/train.jsonl`: 867 样本 / 100 唯一任务
+- 测试集 `data/tau_bench/test.jsonl`: 416 样本 / 55 唯一任务
+- GRPO prompts `data/tau_bench/grpo_prompts.jsonl`: 164 任务 (104 train + 60 test)
+- 零 train/test 泄漏，25/25 验证通过
+
+**测试**: 215/215 全部通过（154 已有 + 61 新增，零回归）
+
+### 待办
+- Phase 2 (SFT): 需远程 Linux GPU 可用
+- Phase 3 (GRPO): 同上
+- Phase 4 (评测+自进化): Agent 引擎集成完成 (T1/T2/T3)，待远程部署联调

@@ -221,9 +221,9 @@ scripts/
 ## 成功标准
 
 - [x] 46K+ 条训练数据下载完成
-- [ ] 28 个 tau-bench 工具 mock 实现完毕
-- [ ] 反馈收集模块单元测试通过 (signal_extractor / verifier / combiner)
-- [ ] 模拟训练数据成功转为统一格式
+- [x] 28 个 tau-bench 工具 mock 实现完毕
+- [x] 反馈收集模块单元测试通过 (signal_extractor / verifier / combiner, 61 tests)
+- [x] 模拟训练数据成功转为统一格式 (2080 samples, 25/25 validation)
 - [ ] 真实用户反馈可自动追加到训练数据池
 - [ ] SFT 后模型工具调用格式正确率 > 60%
 - [ ] GRPO 后任务完成率 > SFT baseline + 5%
