@@ -127,22 +127,22 @@ train_step → weight sync → wake。支持 GSM8K 和 Rubric 两种奖励模式
 ### S2 — 用户模拟 + 纠错交互生成 ✅
 5 种用户画像，500 条种子 → 557 训练对 + 80 测试对，11 类别。
 
-**产物**: `scripts/run_simulation.py`, `data/phase3_datasets/`
+**产出**: `scripts/run_simulation.py`, `data/phase3_datasets/`
 
 ### S3 — 轨迹评估与数据导出 ✅
 分级 (direct_pass / corrected / partial / failed)，提取训练三元组。
 
-**产物**: `trainable_openclaw/evaluation/trajectory_eval.py`
+**产出**: `trainable_openclaw/evaluation/trajectory_eval.py`
 
 ### S4 — 反思与持续优化 ⬜
 Reflection Agent 分析 FAIL 轨迹 → 改进 User Sim prompt → FAIL 率下降。
 
-**产物** (待): `trainable_openclaw/simulation/reflection.py`
+**产出** (待): `trainable_openclaw/simulation/reflection.py`
 
 ### S5 — 评估指标体系 ✅
 JudgeQuality / ModelImprovement / RubricQuality / Convergence 四个 dataclass + Spearman / accuracy@k。
 
-**产物**: `trainable_openclaw/evaluation/metrics.py` (27 tests)
+**产出**: `trainable_openclaw/evaluation/metrics.py` (27 tests)
 
 ---
 
@@ -217,7 +217,7 @@ serve_ppo :8000 (Qwen3-4B) ← nanobot serve :8900 ← nanobot GW :18790
                                                     └─ WebSocket :18791
 ```
 
-**产物**:
+**产出**:
 - `trainable_openclaw/agent/nanobot_adapter.py` — nanobot ↔ veRL 适配器
 - `trainable_openclaw/agent/rollout.py` — Agent rollout 生成器
 - `trainable_openclaw/agent/log_bridge.py` — 日志桥接
@@ -258,7 +258,7 @@ MUA-RL 已证明 loss masking 能防止 reward hacking（背工具输出、抄�
 - [ ] `dp_actor.py` policy gradient loss 仅对 `loss_mask=1` 的 token 计算
 - [ ] 改动量: ~200 行 Python，风险低
 
-**产物**: serve_ppo.py 内 loss_mask 追踪 + 训练时切换
+**产出**: serve_ppo.py 内 loss_mask 追踪 + 训练时切换
 
 **验证**: 检查 loss_mask=0 的 token 在反向传播中贡献零梯度
 
@@ -272,7 +272,7 @@ MUA-RL 已证明 loss masking 能防止 reward hacking（背工具输出、抄�
 - [ ] 组合方式: `final = α * binary + (1-α) * rubric_mean`（默认 α=0.5）
 - [ ] 改动量: ~100 行 Python
 
-**产物**: `trainable_openclaw/training/reward_bridge.py` 内 binary reward 函数
+**产出**: `trainable_openclaw/training/reward_bridge.py` 内 binary reward 函数
 
 **验证**: 代码执行正确→reward=1, 执行错误→reward=0, rubric 正常降级
 
@@ -304,7 +304,7 @@ MUA-RL 已证明 loss masking 能防止 reward hacking（背工具输出、抄�
 - `web_search/web_fetch`: DeepSeek 模拟返回（避免真实网络调用耗时长）
 - `spawn/message/cron`: mock 返回（预定义响应）
 
-**产物**:
+**产出**:
 - `data/agent_scenarios/` — 5 个场景的任务定义 (JSON)
 - `scripts/generate_agent_data.py` — 冷启动数据生成脚本
 - `data/agent_trajectories/train.jsonl` — 500-1000 条训练轨迹
@@ -324,7 +324,7 @@ MUA-RL 已证明 loss masking 能防止 reward hacking（背工具输出、抄�
 - [ ] SFT 训练: Qwen3-4B + LoRA rank=16, lr=2e-5, 3 epochs, batch_size=8
 - [ ] 评估: 在测试集上验证模型生成的工具调用格式是否正确、参数是否合法
 
-**产物**: `scripts/run_agent_sft.sh` — SFT 训练脚本
+**产出**: `scripts/run_agent_sft.sh` — SFT 训练脚本
 
 **验证**:
 - SFT 后模型能生成语法正确的 tool_call JSON
@@ -337,7 +337,7 @@ MUA-RL 已证明 loss masking 能防止 reward hacking（背工具输出、抄�
 - [ ] 30 steps/round, 3-5 rounds
 - [ ] 每步保存 generation_samples 用于分析
 
-**产物**: `scripts/start_agent_train.sh` — Agent GRPO 训练脚本
+**产出**: `scripts/start_agent_train.sh` — Agent GRPO 训练脚本
 
 **验证**:
 - loss > 0（模型在学习）
@@ -352,7 +352,7 @@ MUA-RL 已证明 loss masking 能防止 reward hacking（背工具输出、抄�
 - [ ] 对比: baseline (SFT only) vs GRPO round 1/2/3
 - [ ] 指标: 任务完成率 / 工具选择准确率 / 步骤效率 / 错误恢复率
 
-**产物**: `scripts/eval_agent.py` — Agent 评测脚本
+**产出**: `scripts/eval_agent.py` — Agent 评测脚本
 
 **T2 总验证 (门控):**
 - [ ] loss masking 生效（梯度验证）
@@ -374,7 +374,7 @@ Agent 的评判维度与单轮对话完全不同。
 - [ ] 6 个 agent 专用维度 → 3-5 条量化评分 rubric
 - [ ] 每条 rubric: 详细扣分规则 + JSON 输出格式 + max_tokens 动态缩放
 
-**产物**: `trainable_openclaw/evaluation/agent_rubric.py`
+**产出**: `trainable_openclaw/evaluation/agent_rubric.py`
 
 **验证**: 3 条 agent rubric 可正确评分，优质轨迹 > 劣质轨迹（区分度 p<0.05）
 
@@ -385,7 +385,7 @@ Agent 的评判维度与单轮对话完全不同。
 - [ ] 合并评分: 多个 rubric 合并为单次 API 调用（省费用）
 - [ ] Sync API: 兼容 Ray actor event loop
 
-**产物**: `trainable_openclaw/evaluation/agent_judge.py`
+**产出**: `trainable_openclaw/evaluation/agent_judge.py`
 
 **验证**: 10 条轨迹合并评分 < 5s, 无截断, 分数合理
 
@@ -420,7 +420,7 @@ nanobot 闭环跑通后，迁移到功能更完整的 open-claw 框架。
 4. **仿真管线适配** — User Sim 适配 open-claw 的 Agent 交互模式
 5. **训练数据迁移** — nanobot 阶段积累的训练数据可在 open-claw 上复用
 
-**产物**:
+**产出**:
 - `trainable_openclaw/agent/openclaw_adapter.py` — open-claw ↔ veRL 适配器
 - `docs/research/openclaw_analysis.md` — open-claw 框架分析笔记
 
