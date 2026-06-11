@@ -110,6 +110,30 @@ research-scout (调研) → research-experiment-planner (实验设计) → disci
 - 用户问"有什么新方法" → 自动派 research-scout
 - 重大功能完成 → 主动派 academic-content-writer 撰写宣传
 
+### 子 Agent 间直接通信
+
+子 agent 之间可以通过文件消息系统直接通信，**无需每次都经过主 agent 中转**。消息存储在 `.claude/messages/{agent-name}/inbox/`。
+
+**核心原则：**
+- 每个 agent 在**会话开始时**检查自己 inbox 中的未读消息
+- 每个 agent 在**完成任务时**考虑是否需要通知下游 agent
+- 消息类型：`task_request`（派活）、`status_update`（汇报进展）、`question`（请求澄清）、`handoff`（移交工作）、`reply`（回复）
+
+**典型触发场景：**
+- disciplined-coder 完成功能 → 自动发 `task_request` 给 e2e-code-tester
+- e2e-code-tester 发现 bug → 自动发 `task_request` 给 disciplined-coder
+- research-scout 找到论文 → 自动发 `status_update` 给 research-experiment-planner
+- research-experiment-planner 完成方案 → 自动发 `handoff` 给 disciplined-coder
+
+**工具：**
+```bash
+python scripts/agent_message.py send --to AGENT --type TYPE --subject "..." --body "..."
+python scripts/agent_message.py check --agent AGENT --unread-only
+python scripts/agent_message.py list-agents
+```
+
+详细协议：`.claude/messages/PROTOCOL.md`
+
 ## 项目文档索引
 
 - 路线图与进度: `docs/roadmap.md`

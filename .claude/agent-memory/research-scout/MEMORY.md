@@ -1,0 +1,5 @@
+- [Self-evolution pipeline datasets](datasets_self_evolution_pipeline.md) — Catalog of correction/feedback/revision datasets suitable for GRPO training, ranked by format match
+- [Agent tool-use / function-calling datasets](agent_tool_use_datasets.md) — Comprehensive catalog of 20+ agent datasets ranked by relevance to nanobot's 17-tool set
+- [tau-bench deep dive](tau_bench_deep_dive.md) — Full analysis: 165 tasks, tools, training data availability (eval-only, can self-generate 12k+), tau2/tau3 evolution
+- [CodeFuse-Agent deep dive](codefuse_agent_deep_dive.md) — 6 code tools, framework-only (no training data), purely SWE-focused, low relevance for general tasks
+- [MUA-RL deep dive](mua_rl_deep_dive.md) — BEST MATCH: GRPO+simulated user+VeRL, 2000 SFT trajectories, sparse binary reward, loss masking, directly adaptable to nanobot

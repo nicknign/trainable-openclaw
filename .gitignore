@@ -32,4 +32,8 @@ papers*
 
 # Local reference checkouts (large external repos, not part of project source)
 references/
-.claude/
+# Claude Code agent config: version the agent definitions, message protocol, and agent memory
+.claude/*
+!.claude/agents/
+!.claude/messages/
+!.claude/agent-memory/

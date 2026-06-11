@@ -1,0 +1,1 @@
+- [Agent Data Generation Pipeline Spec](agent-data-generation-spec.md) -- Complete spec for 5-scenario agent tool-use data pipeline (2026-06-12)
