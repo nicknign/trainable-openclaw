@@ -23,16 +23,16 @@
                          │
                          ▼
 ┌──────────────────────────────────────────────────────────────┐
-│                Phase 2-3: 训练 (远程 Linux GPU)               │
+│                Phase 2: GRPO 训练 (远程 Linux GPU)            │
 │                                                              │
-│  SFT 冷启动 ──→ GRPO 训练                                    │
-│  Qwen3-4B      164 prompts, 3-layer reward                   │
-│  LoRA rank=16   16p×4r=64, lr=1e-5                           │
+│  Qwen3-4B + LoRA rank=16                                     │
+│  164 prompts, 3-layer reward, 16p×4r=64                      │
+│  直接用 GRPO，无需 SFT — Layer 1 提供格式学习信号              │
 └────────────────────────┬─────────────────────────────────────┘
                          │
                          ▼
 ┌──────────────────────────────────────────────────────────────┐
-│               Phase 4: 评测 + 上线自进化                      │
+│               Phase 3: 评测 + 上线自进化                      │
 │                                                              │
 │  ┌──────────┐   ┌───────────┐   ┌────────────────────┐      │
 │  │ Layer 1  │   │  Layer 2  │   │     Layer 3        │      │
@@ -56,42 +56,53 @@
 | 阶段 | 状态 | 内容 | 产出 |
 |------|------|------|------|
 | Phase 1: 数据准备 | ✅ 完成 | 数据集下载、mock工具、反馈模块、格式转换、验证 | 867 train / 416 test / 164 prompts |
-| Phase 2: SFT | ⬜ 待 GPU | Qwen3-4B + LoRA 冷启动 | 工具调用格式正确率 > 60% |
-| Phase 3: GRPO | ⬜ 待 GPU | 分层 reward 训练 | 任务完成率 > SFT +5% |
-| Phase 4: 评测+自进化 | 🟡 部分完成 | 标准评测 + 上线自进化循环 | T1 集成完成，T2-T4 待远程 |
+| Phase 2: GRPO | ⬜ 待 GPU | Qwen3-4B + LoRA，164 prompts，3-layer reward | 任务完成率 > baseline |
+| Phase 3: 评测+自进化 | 🟡 部分完成 | 标准评测 + 上线自进化循环 | T1 集成完成 |
 
 ---
 
 # Claude Agent 使用规范
 
+## 角色定位
+
+| 角色 | 担任者 | 职责 |
+|------|--------|------|
+| **Planner / 总控** | 主 agent (Claude Code) | 制定 `plans/`、掌控全局进度、维护项目记忆、决策调度 |
+| **Research Executor** | research-experiment-planner | 执行训练实验、超参调优、结果分析验证、诊断收敛问题 |
+| **Literature Scout** | research-scout | ML 文献检索、数据集调研 |
+| **Coder** | disciplined-coder | 按 plan 编码实现、单元测试、Linux 调试 |
+| **Tester** | e2e-code-tester | 端到端集成测试、bug 报告、回归验证 |
+| **Writer** | academic-content-writer | 论文/博客/推文，仅主 agent 触发 |
+
 ## Agent 分工表
 
 | Agent | 模型 | 职责 | 触发方式 |
 |-------|------|------|----------|
-| **research-experiment-planner** | sonnet | 制定 `plans/{name}_plan.md`、算法分析、实验设计、训练诊断 | 新功能/实验开始前由主 agent 派发 |
-| **research-scout** | opus | ML 文献检索、数据集发现 | planner 在制定 plan 时通过消息调用，或主 agent 需要文献时触发 |
-| **disciplined-coder** | sonnet | 按 plan 编码实现、编写单元测试、Linux 远程调试 | 收到 planner 的 handoff 后开始 |
+| **research-experiment-planner** | sonnet | 执行训练、超参调优、实验观察与分析、结果验证 | 主 agent 制定 plan 后派发执行实验 |
+| **research-scout** | opus | ML 文献检索、数据集发现 | 主 agent 需要文献调研时触发 |
+| **disciplined-coder** | sonnet | 按 plan 编码实现、编写单元测试、Linux 远程调试 | 主 agent 派发，收到 plan 后开始 |
 | **e2e-code-tester** | sonnet | 端到端测试、集成验证、bug 报告 | 收到 coder 的 task_request 后开始 |
 | **academic-content-writer** | sonnet | 学术论文、技术博客、社交媒体宣传 | **仅由主 agent 触发**，不参与日常循环 |
 
 ## 开发工作流
 
-### 1. Plan First — 制定计划
+### 1. Plan First — 主 agent 制定计划
 
-**任何功能实现前，必须先由 planner 输出 `plans/{feature_name}_plan.md`。**
+**任何功能实现前，主 agent 先输出 `plans/{feature_name}_plan.md`。**
 
 ```
-主 agent 提出需求
+主 agent (Planner)
       │
-      ▼
-research-experiment-planner
+      ├─ 分析需求，参考 CLAUDE.md / memory / docs/plan.md
       │
-      ├─ 需要文献调研 → task_request → research-scout
-      │                  scout 返回 findings → 融入 plan
+      ├─ 需要文献调研 → 启动 research-scout 检索
+      │                  scout 返回 findings
       │
       └─ 输出: plans/{feature_name}_plan.md
            │
-           └─ handoff → disciplined-coder
+           ├─ 编码实现 → 派发 disciplined-coder
+           │
+           └─ 实验验证 → 派发 research-experiment-planner
 ```
 
 Plan 文档需包含：目标与背景、技术方案、实现步骤与验证标准、依赖与风险。
@@ -124,12 +135,12 @@ disciplined-coder                     e2e-code-tester
 
 ```
 disciplined-coder ←→ research-experiment-planner
-    (调试 & 修复)          (执行实验 & 观察 & 分析)
+    (调试 & 修复)          (执行训练 & 观察 & 分析)
 ```
 
-- 代码部署到 Linux 后，coder 负责主要调试
-- planner 执行实验，观察训练曲线和收敛情况
-- 发现问题 → planner 反馈给 coder → 修改代码 → 重新实验
+- 代码部署到 Linux 后，coder 负责调试
+- research-experiment-planner 执行训练，观察曲线和收敛，诊断问题
+- 发现问题 → 反馈给 coder → 修改代码 → 重新实验
 - **每次实验的观察结论写入对应 `plans/` 文档的 "实验结果" 段落**
 
 ### 4. 文献撰写

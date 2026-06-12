@@ -158,29 +158,23 @@ Layer 3 — LLM Judge (主观, 有 API 成本, 仅必要时调用)
 - 自动检查: 工具调用格式/参数类型/消息角色/task 泄漏/reward 字段完整性
 - 输出: 通过/失败报告
 
-### Phase 2: SFT 冷启动训练 (远程 Linux GPU)
+### Phase 2: GRPO 训练 (远程 Linux GPU)
 
-**P2.1 — SFT 训练**
+**P2.1 — GRPO 训练**
 - 基座: Qwen3-4B + LoRA rank=16
-- 数据: Phase 1 产出的 train.jsonl
-- 配置: lr=2e-5, batch_size=8, 3 epochs
-- 验证: 工具调用格式正确率 > 60%
-
-### Phase 3: GRPO 训练 (远程 Linux GPU)
-
-**P3.1 — GRPO 训练**
 - Prompt: tau-bench 164 个任务定义
 - Rollout: nanobot + tau-bench mock 工具
 - 奖励: 三层加权 (layer1=0.5, layer2=0.3, layer3=0.2)
 - 配置: 16p×4r=64, lr=1e-5, max_turns=15
+- 直接用 GRPO 训练，无需 SFT 冷启动——Layer 1 确定性验证提供足够格式学习信号
 
-### Phase 4: 评测 + 上线自进化
+### Phase 3: 评测 + 上线自进化
 
-**P4.1 — 标准评测**
+**P3.1 — 标准评测**
 - tau-bench airline (20 test tasks) + retail (40 test tasks)
 - 指标: pass^k, step efficiency, tool selection accuracy
 
-**P4.2 — 上线后自进化循环**
+**P3.2 — 上线后自进化循环**
 ```
 真实用户请求 → agent 执行 → 反馈收集 (Layer 1+2+3)
   → 追加到训练数据池 → 积累 N 条 → 触发 GRPO → 权重更新
@@ -224,7 +218,7 @@ scripts/
 - [x] 28 个 tau-bench 工具 mock 实现完毕
 - [x] 反馈收集模块单元测试通过 (signal_extractor / verifier / combiner, 61 tests)
 - [x] 模拟训练数据成功转为统一格式 (2080 samples, 25/25 validation)
+- [x] E2E 端到端测试通过 (45 tests, 4 scenarios)
 - [ ] 真实用户反馈可自动追加到训练数据池
-- [ ] SFT 后模型工具调用格式正确率 > 60%
-- [ ] GRPO 后任务完成率 > SFT baseline + 5%
+- [ ] GRPO 后任务完成率达标
 - [ ] 上线后每 100 条真实反馈触发一次 GRPO 再训练
