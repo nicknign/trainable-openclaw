@@ -52,6 +52,7 @@ def _seed_retail_users() -> list[dict[str, Any]]:
                 {"type": "paypal", "email": "alice.chen@email.com"},
             ],
             "member_since": "2024-01-15",
+            "gift_card_balance": 50.0,
         },
         {
             "user_id": "U002",
@@ -72,6 +73,7 @@ def _seed_retail_users() -> list[dict[str, Any]]:
                 {"type": "credit_card", "last_four": "5678", "brand": "Mastercard"},
             ],
             "member_since": "2023-06-20",
+            "gift_card_balance": 0.0,
         },
         {
             "user_id": "U003",
@@ -92,6 +94,7 @@ def _seed_retail_users() -> list[dict[str, Any]]:
                 {"type": "credit_card", "last_four": "9012", "brand": "Amex"},
             ],
             "member_since": "2024-03-10",
+            "gift_card_balance": 120.0,
         },
         {
             "user_id": "U004",
@@ -113,6 +116,7 @@ def _seed_retail_users() -> list[dict[str, Any]]:
                 {"type": "gift_card", "last_four": "9999", "brand": "Store"},
             ],
             "member_since": "2023-11-05",
+            "gift_card_balance": 0.0,
         },
         {
             "user_id": "U005",
@@ -133,6 +137,7 @@ def _seed_retail_users() -> list[dict[str, Any]]:
                 {"type": "credit_card", "last_four": "7890", "brand": "Mastercard"},
             ],
             "member_since": "2024-07-22",
+            "gift_card_balance": 75.0,
         },
         {
             "user_id": "U006",
@@ -153,6 +158,7 @@ def _seed_retail_users() -> list[dict[str, Any]]:
                 {"type": "credit_card", "last_four": "2468", "brand": "Visa"},
             ],
             "member_since": "2024-09-14",
+            "gift_card_balance": 0.0,
         },
         {
             "user_id": "U007",
@@ -173,6 +179,7 @@ def _seed_retail_users() -> list[dict[str, Any]]:
                 {"type": "credit_card", "last_four": "1357", "brand": "Amex"},
             ],
             "member_since": "2023-02-28",
+            "gift_card_balance": 150.0,
         },
         {
             "user_id": "U008",
@@ -194,6 +201,7 @@ def _seed_retail_users() -> list[dict[str, Any]]:
                 {"type": "paypal", "email": "hannah.lee@email.com"},
             ],
             "member_since": "2024-04-17",
+            "gift_card_balance": 0.0,
         },
         {
             "user_id": "U009",
@@ -214,6 +222,7 @@ def _seed_retail_users() -> list[dict[str, Any]]:
                 {"type": "credit_card", "last_four": "9753", "brand": "Mastercard"},
             ],
             "member_since": "2024-08-03",
+            "gift_card_balance": 25.0,
         },
         {
             "user_id": "U010",
@@ -234,6 +243,7 @@ def _seed_retail_users() -> list[dict[str, Any]]:
                 {"type": "credit_card", "last_four": "1122", "brand": "Visa"},
             ],
             "member_since": "2023-12-08",
+            "gift_card_balance": 0.0,
         },
         {
             "user_id": "U011",
@@ -254,6 +264,7 @@ def _seed_retail_users() -> list[dict[str, Any]]:
                 {"type": "credit_card", "last_four": "3344", "brand": "Mastercard"},
             ],
             "member_since": "2024-05-30",
+            "gift_card_balance": 100.0,
         },
         {
             "user_id": "U012",
@@ -275,6 +286,7 @@ def _seed_retail_users() -> list[dict[str, Any]]:
                 {"type": "credit_card", "last_four": "7788", "brand": "Amex"},
             ],
             "member_since": "2024-11-12",
+            "gift_card_balance": 0.0,
         },
         {
             "user_id": "U013",
@@ -295,6 +307,7 @@ def _seed_retail_users() -> list[dict[str, Any]]:
                 {"type": "credit_card", "last_four": "9900", "brand": "Visa"},
             ],
             "member_since": "2023-08-15",
+            "gift_card_balance": 60.0,
         },
         {
             "user_id": "U014",
@@ -315,6 +328,7 @@ def _seed_retail_users() -> list[dict[str, Any]]:
                 {"type": "credit_card", "last_four": "2233", "brand": "Mastercard"},
             ],
             "member_since": "2024-02-19",
+            "gift_card_balance": 0.0,
         },
         {
             "user_id": "U015",
@@ -336,6 +350,7 @@ def _seed_retail_users() -> list[dict[str, Any]]:
                 {"type": "paypal", "email": "oscar.g@email.com"},
             ],
             "member_since": "2024-10-07",
+            "gift_card_balance": 200.0,
         },
     ]
 
@@ -525,6 +540,8 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
                 "city": "San Francisco", "state": "CA", "zip": "94102", "country": "USA",
             },
             "payment": {"method": "credit_card", "last_four": "1234", "amount": 142.99},
+            "payment_method": {"type": "credit_card", "last_four": "1234", "brand": "Visa"},
+            "gift_card_applied": False,
             "created_at": "2026-05-20T10:15:00",
             "delivered_at": "2026-05-26T14:30:00",
         },
@@ -540,6 +557,8 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
                 "city": "San Francisco", "state": "CA", "zip": "94102", "country": "USA",
             },
             "payment": {"method": "paypal", "amount": 131.99},
+            "payment_method": {"type": "paypal", "last_four": "N/A", "brand": "PayPal"},
+            "gift_card_applied": False,
             "created_at": "2026-06-08T09:45:00",
         },
         {
@@ -555,6 +574,8 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
                 "city": "New York", "state": "NY", "zip": "10001", "country": "USA",
             },
             "payment": {"method": "credit_card", "last_four": "5678", "amount": 274.97},
+            "payment_method": {"type": "credit_card", "last_four": "5678", "brand": "Mastercard"},
+            "gift_card_applied": False,
             "created_at": "2026-05-15T14:20:00",
             "delivered_at": "2026-05-22T11:00:00",
         },
@@ -570,6 +591,8 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
                 "city": "New York", "state": "NY", "zip": "10001", "country": "USA",
             },
             "payment": {"method": "credit_card", "last_four": "5678", "amount": 44.99},
+            "payment_method": {"type": "credit_card", "last_four": "5678", "brand": "Mastercard"},
+            "gift_card_applied": False,
             "created_at": "2026-06-05T07:30:00",
             "shipped_at": "2026-06-06T16:00:00",
         },
@@ -586,6 +609,8 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
                 "city": "Miami", "state": "FL", "zip": "33101", "country": "USA",
             },
             "payment": {"method": "credit_card", "last_four": "9012", "amount": 136.98},
+            "payment_method": {"type": "credit_card", "last_four": "9012", "brand": "Amex"},
+            "gift_card_applied": False,
             "created_at": "2026-05-12T11:00:00",
             "delivered_at": "2026-05-19T15:45:00",
         },
@@ -601,6 +626,8 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
                 "city": "Miami", "state": "FL", "zip": "33101", "country": "USA",
             },
             "payment": {"method": "credit_card", "last_four": "9012", "amount": 55.99},
+            "payment_method": {"type": "credit_card", "last_four": "9012", "brand": "Amex"},
+            "gift_card_applied": False,
             "created_at": "2026-06-09T16:20:00",
         },
         {
@@ -615,6 +642,8 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
                 "city": "Chicago", "state": "IL", "zip": "60601", "country": "USA",
             },
             "payment": {"method": "credit_card", "last_four": "3456", "amount": 207.99},
+            "payment_method": {"type": "credit_card", "last_four": "3456", "brand": "Visa"},
+            "gift_card_applied": False,
             "created_at": "2026-05-08T08:00:00",
             "delivered_at": "2026-05-14T12:30:00",
         },
@@ -631,6 +660,8 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
                 "city": "Chicago", "state": "IL", "zip": "60601", "country": "USA",
             },
             "payment": {"method": "gift_card", "last_four": "9999", "amount": 111.98},
+            "payment_method": {"type": "gift_card", "last_four": "9999", "brand": "Store"},
+            "gift_card_applied": True,
             "created_at": "2026-06-07T13:10:00",
         },
         {
@@ -645,6 +676,8 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
                 "city": "Seattle", "state": "WA", "zip": "98101", "country": "USA",
             },
             "payment": {"method": "credit_card", "last_four": "7890", "amount": 272.99},
+            "payment_method": {"type": "credit_card", "last_four": "7890", "brand": "Mastercard"},
+            "gift_card_applied": False,
             "created_at": "2026-05-18T17:40:00",
             "delivered_at": "2026-05-25T10:15:00",
         },
@@ -660,6 +693,8 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
                 "city": "Seattle", "state": "WA", "zip": "98101", "country": "USA",
             },
             "payment": {"method": "credit_card", "last_four": "7890", "amount": 379.99},
+            "payment_method": {"type": "credit_card", "last_four": "7890", "brand": "Mastercard"},
+            "gift_card_applied": False,
             "created_at": "2026-06-01T10:30:00",
             "cancelled_at": "2026-06-02T09:15:00",
         },
@@ -675,6 +710,8 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
                 "city": "Boston", "state": "MA", "zip": "02108", "country": "USA",
             },
             "payment": {"method": "credit_card", "last_four": "2468", "amount": 240.99},
+            "payment_method": {"type": "credit_card", "last_four": "2468", "brand": "Visa"},
+            "gift_card_applied": False,
             "created_at": "2026-06-04T12:00:00",
             "shipped_at": "2026-06-05T14:30:00",
         },
@@ -690,6 +727,8 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
                 "city": "Denver", "state": "CO", "zip": "80202", "country": "USA",
             },
             "payment": {"method": "credit_card", "last_four": "1357", "amount": 82.97},
+            "payment_method": {"type": "credit_card", "last_four": "1357", "brand": "Amex"},
+            "gift_card_applied": False,
             "created_at": "2026-05-28T09:00:00",
             "delivered_at": "2026-06-03T16:20:00",
         },
@@ -706,6 +745,8 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
                 "city": "Los Angeles", "state": "CA", "zip": "90028", "country": "USA",
             },
             "payment": {"method": "paypal", "amount": 146.97},
+            "payment_method": {"type": "paypal", "last_four": "N/A", "brand": "PayPal"},
+            "gift_card_applied": False,
             "created_at": "2026-06-10T08:45:00",
         },
         {
@@ -721,6 +762,8 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
                 "city": "Phoenix", "state": "AZ", "zip": "85004", "country": "USA",
             },
             "payment": {"method": "credit_card", "last_four": "1122", "amount": 192.98},
+            "payment_method": {"type": "credit_card", "last_four": "1122", "brand": "Visa"},
+            "gift_card_applied": False,
             "created_at": "2026-05-25T15:10:00",
             "delivered_at": "2026-06-01T09:30:00",
         },
@@ -737,6 +780,8 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
                 "city": "Honolulu", "state": "HI", "zip": "96814", "country": "USA",
             },
             "payment": {"method": "credit_card", "last_four": "5566", "amount": 246.98},
+            "payment_method": {"type": "credit_card", "last_four": "5566", "brand": "Visa"},
+            "gift_card_applied": False,
             "created_at": "2026-06-09T20:00:00",
         },
     ]
@@ -750,6 +795,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "address": {"address1": "123 Main St", "city": "San Francisco", "state": "CA", "zip": "94102"},
             "loyalty_tier": "gold", "loyalty_points": 45200,
             "known_traveler_number": "KTN123456", "passport": "US-A1234567",
+            "gift_card_balance": 50.0,
         },
         {
             "user_id": "UA002", "name": "Bob Williams", "first_name": "Bob", "last_name": "Williams",
@@ -757,6 +803,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "address": {"address1": "456 Park Ave", "city": "New York", "state": "NY", "zip": "10001"},
             "loyalty_tier": "silver", "loyalty_points": 18500,
             "known_traveler_number": "KTN789012", "passport": "US-B2345678",
+            "gift_card_balance": 0.0,
         },
         {
             "user_id": "UA003", "name": "Carlos Rodriguez", "first_name": "Carlos", "last_name": "Rodriguez",
@@ -764,6 +811,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "address": {"address1": "789 Ocean Dr", "city": "Miami", "state": "FL", "zip": "33101"},
             "loyalty_tier": "platinum", "loyalty_points": 89300,
             "known_traveler_number": "KTN345678", "passport": "US-C3456789",
+            "gift_card_balance": 120.0,
         },
         {
             "user_id": "UA004", "name": "Diana Park", "first_name": "Diana", "last_name": "Park",
@@ -771,6 +819,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "address": {"address1": "321 Michigan Ave", "city": "Chicago", "state": "IL", "zip": "60601"},
             "loyalty_tier": "basic", "loyalty_points": 3200,
             "passport": "US-D4567890",
+            "gift_card_balance": 0.0,
         },
         {
             "user_id": "UA005", "name": "Edward Kim", "first_name": "Edward", "last_name": "Kim",
@@ -778,6 +827,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "address": {"address1": "654 Pine St", "city": "Seattle", "state": "WA", "zip": "98101"},
             "loyalty_tier": "gold", "loyalty_points": 52100,
             "known_traveler_number": "KTN901234", "passport": "US-E5678901",
+            "gift_card_balance": 75.0,
         },
         {
             "user_id": "UA006", "name": "Fatima Hassan", "first_name": "Fatima", "last_name": "Hassan",
@@ -785,6 +835,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "address": {"address1": "87 Beacon St", "city": "Boston", "state": "MA", "zip": "02108"},
             "loyalty_tier": "basic", "loyalty_points": 8900,
             "passport": "US-F6789012",
+            "gift_card_balance": 0.0,
         },
         {
             "user_id": "UA007", "name": "George Thompson", "first_name": "George", "last_name": "Thompson",
@@ -792,6 +843,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "address": {"address1": "1590 Broadway", "city": "Denver", "state": "CO", "zip": "80202"},
             "loyalty_tier": "silver", "loyalty_points": 22400,
             "known_traveler_number": "KTN567890", "passport": "US-G7890123",
+            "gift_card_balance": 150.0,
         },
         {
             "user_id": "UA008", "name": "Hannah Lee", "first_name": "Hannah", "last_name": "Lee",
@@ -799,6 +851,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "address": {"address1": "2000 Sunset Blvd", "city": "Los Angeles", "state": "CA", "zip": "90028"},
             "loyalty_tier": "platinum", "loyalty_points": 97800,
             "known_traveler_number": "KTN112233", "passport": "US-H8901234",
+            "gift_card_balance": 0.0,
         },
         {
             "user_id": "UA009", "name": "Ivan Petrov", "first_name": "Ivan", "last_name": "Petrov",
@@ -806,6 +859,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "address": {"address1": "4100 Westheimer Rd", "city": "Houston", "state": "TX", "zip": "77027"},
             "loyalty_tier": "basic", "loyalty_points": 1200,
             "passport": "US-I9012345",
+            "gift_card_balance": 25.0,
         },
         {
             "user_id": "UA010", "name": "Julia Martinez", "first_name": "Julia", "last_name": "Martinez",
@@ -813,6 +867,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "address": {"address1": "1 E Washington St", "city": "Phoenix", "state": "AZ", "zip": "85004"},
             "loyalty_tier": "silver", "loyalty_points": 19800,
             "known_traveler_number": "KTN445566", "passport": "US-J0123456",
+            "gift_card_balance": 0.0,
         },
         {
             "user_id": "UA011", "name": "Kevin O'Brien", "first_name": "Kevin", "last_name": "O'Brien",
@@ -820,6 +875,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "address": {"address1": "720 SW Broadway", "city": "Portland", "state": "OR", "zip": "97205"},
             "loyalty_tier": "basic", "loyalty_points": 5600,
             "passport": "US-K1234567",
+            "gift_card_balance": 100.0,
         },
         {
             "user_id": "UA012", "name": "Lisa Nakamura", "first_name": "Lisa", "last_name": "Nakamura",
@@ -827,6 +883,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "address": {"address1": "1450 Ala Moana Blvd", "city": "Honolulu", "state": "HI", "zip": "96814"},
             "loyalty_tier": "gold", "loyalty_points": 63400,
             "known_traveler_number": "KTN778899", "passport": "US-L2345678",
+            "gift_card_balance": 0.0,
         },
         {
             "user_id": "UA013", "name": "Michael Brown", "first_name": "Michael", "last_name": "Brown",
@@ -834,6 +891,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "address": {"address1": "1200 Peachtree St", "city": "Atlanta", "state": "GA", "zip": "30309"},
             "loyalty_tier": "basic", "loyalty_points": 4100,
             "passport": "US-M3456789",
+            "gift_card_balance": 60.0,
         },
         {
             "user_id": "UA014", "name": "Nancy Davis", "first_name": "Nancy", "last_name": "Davis",
@@ -841,6 +899,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "address": {"address1": "300 Reunion Blvd", "city": "Dallas", "state": "TX", "zip": "75207"},
             "loyalty_tier": "silver", "loyalty_points": 27100,
             "known_traveler_number": "KTN990011", "passport": "US-N4567890",
+            "gift_card_balance": 0.0,
         },
         {
             "user_id": "UA015", "name": "Oscar Garcia", "first_name": "Oscar", "last_name": "Garcia",
@@ -848,6 +907,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "address": {"address1": "111 Alamo Plaza", "city": "San Antonio", "state": "TX", "zip": "78205"},
             "loyalty_tier": "gold", "loyalty_points": 56700,
             "known_traveler_number": "KTN223344", "passport": "US-O5678901",
+            "gift_card_balance": 200.0,
         },
     ]
 

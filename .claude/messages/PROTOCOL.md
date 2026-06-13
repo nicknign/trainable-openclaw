@@ -15,7 +15,6 @@ No daemon — agents use `.claude/agent_message.py` to send/check/reply.
 │   ├── inbox/
 │   └── sent/
 ├── research-scout/          # ...same structure
-├── research-experiment-planner/
 └── academic-content-writer/
 ```
 
@@ -109,8 +108,6 @@ Archive old messages by moving to `archive/` subdirectory if the inbox grows lar
 |---------------------|----------------------|------|
 | disciplined-coder finishes a feature | e2e-code-tester | `task_request` |
 | e2e-code-tester finds a bug | disciplined-coder | `task_request` |
-| research-scout finds a paper/dataset | research-experiment-planner | `status_update` |
-| research-experiment-planner designs experiment | disciplined-coder | `handoff` |
-| disciplined-coder needs algorithm details | research-experiment-planner | `question` |
+| research-scout finds a paper/dataset | disciplined-coder | `status_update` |
 | Any agent completes a milestone | academic-content-writer | `status_update` |
 | e2e-code-tester validates a module | disciplined-coder (if bugs) or academic-content-writer (if milestone) | `reply` or `status_update` |

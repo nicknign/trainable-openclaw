@@ -89,6 +89,54 @@ def _decrement_seats(flight: dict, date: str, cabin: str, count: int = 1) -> boo
 
 
 # ---------------------------------------------------------------------------
+# 0. get_user_reservations
+# ---------------------------------------------------------------------------
+
+class GetUserReservationsTool(MockTool):
+    name = "get_user_reservations"
+    description = "Get all reservations for a specific user by their user ID. Returns a list of reservation summaries."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "user_id": {
+                "type": "string",
+                "description": "The user ID (e.g. 'UA001').",
+            },
+        },
+        "required": ["user_id"],
+    }
+
+    def execute(self, arguments: dict[str, Any], db_state: dict[str, Any]) -> dict[str, Any]:
+        err = self._validate_args(arguments)
+        if err:
+            return err
+        user = _find_airline_user(db_state, arguments["user_id"])
+        if user is None:
+            return {"status": "error", "message": f"User '{arguments['user_id']}' not found"}
+        reservations = [
+            {
+                "reservation_id": r["reservation_id"],
+                "status": r["status"],
+                "flights": [
+                    {
+                        "flight_number": seg["flight_number"],
+                        "date": seg["date"],
+                        "origin": seg["origin"],
+                        "destination": seg["destination"],
+                        "cabin": seg.get("cabin", "economy"),
+                    }
+                    for seg in r.get("flights", [])
+                ],
+                "passenger_count": len(r.get("passengers", [])),
+                "created_at": r.get("created_at", ""),
+            }
+            for r in db_state["reservations"]
+            if r["user_id"] == arguments["user_id"]
+        ]
+        return {"status": "success", "result": reservations}
+
+
+# ---------------------------------------------------------------------------
 # 1. book_reservation
 # ---------------------------------------------------------------------------
 
@@ -830,8 +878,9 @@ class GetFlightStatusTool(MockTool):
 # ---------------------------------------------------------------------------
 
 def _make_airline_tools() -> list[MockTool]:
-    """Instantiate all 12 airline-domain tools + 3 shared utilities."""
+    """Instantiate all 13 airline-domain tools + 3 shared utilities."""
     return [
+        GetUserReservationsTool(),
         BookReservationTool(),
         CancelReservationTool(),
         GetReservationDetailsTool(),
@@ -855,6 +904,7 @@ airline_tools: list[MockTool] = _make_airline_tools()
 
 # Re-export individual tool classes for direct import
 __all__ = [
+    "GetUserReservationsTool",
     "BookReservationTool",
     "CancelReservationTool",
     "GetReservationDetailsTool",

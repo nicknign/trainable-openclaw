@@ -5,7 +5,22 @@
 训练 Qwen3-4B 使其能熟练调用 nanobot skill 完成客服业务任务（tau-bench 场景）。
 上线后通过分层 reward 收集真实用户反馈，维持自进化训练闭环。
 
-## 功能设计流程
+## 总体规划与路线图
+
+> **新加入的 subagent 必须先读这些文档建立全局视角。**
+
+| 文档 | 用途 | 何时读 |
+|------|------|--------|
+| `docs/roadmap.md` | 路线图、历史进度、各阶段状态 | **必读** — 了解项目全貌 |
+| `docs/plan.md` | 完整实验计划：3-layer reward + 4 phases | 做训练相关任务前 |
+| `docs/DESIGN.md` | 系统架构设计 | 做架构级改动前 |
+| `docs/tau_bench_format.md` | tau-bench 数据格式说明 | 做数据处理前 |
+| `docs/serve_guide.md` | vllm + nanobot 服务部署指南 | 做远程部署前 |
+| `docs/code_guide.md` | 代码规范与模块说明 | 写代码前 |
+| `docs/mua-rl_research.md` | MUA-RL 调研报告 | 做训练方法调研前 |
+| `plans/` | 各功能的详细实施计划 | 执行具体任务前找对应 plan |
+
+## 当前功能设计流程
 
 ```
                         ┌──────────────────────────┐
@@ -68,21 +83,57 @@
 | 角色 | 担任者 | 职责 |
 |------|--------|------|
 | **Planner / 总控** | 主 agent (Claude Code) | 制定 `plans/`、掌控全局进度、维护项目记忆、决策调度 |
-| **Research Executor** | research-experiment-planner | 执行训练实验、超参调优、结果分析验证、诊断收敛问题 |
+| **Implementer** | disciplined-coder | 编码实现 + 单元测试 + Linux 远程部署调试 + 训练执行 + 实验分析 + 结果验证 |
 | **Literature Scout** | research-scout | ML 文献检索、数据集调研 |
-| **Coder** | disciplined-coder | 按 plan 编码实现、单元测试、Linux 调试 |
 | **Tester** | e2e-code-tester | 端到端集成测试、bug 报告、回归验证 |
 | **Writer** | academic-content-writer | 论文/博客/推文，仅主 agent 触发 |
+
+> **2026-06-12 合并**: research-experiment-planner 已并入 disciplined-coder。分离实验 agent 的失败教训——不读代码就写脚本，重复造轮子。编码和实验共享同一代码库知识，分开徒增协调成本。
 
 ## Agent 分工表
 
 | Agent | 模型 | 职责 | 触发方式 |
 |-------|------|------|----------|
-| **research-experiment-planner** | sonnet | 执行训练、超参调优、实验观察与分析、结果验证 | 主 agent 制定 plan 后派发执行实验 |
+| **disciplined-coder** | sonnet | 编码实现、单元测试、Linux 远程部署调试、训练执行、实验分析、结果验证 | 主 agent 派发 plan 后开始，或直接派发实验/调试任务 |
 | **research-scout** | opus | ML 文献检索、数据集发现 | 主 agent 需要文献调研时触发 |
-| **disciplined-coder** | sonnet | 按 plan 编码实现、编写单元测试、Linux 远程调试 | 主 agent 派发，收到 plan 后开始 |
 | **e2e-code-tester** | sonnet | 端到端测试、集成验证、bug 报告 | 收到 coder 的 task_request 后开始 |
 | **academic-content-writer** | sonnet | 学术论文、技术博客、社交媒体宣传 | **仅由主 agent 触发**，不参与日常循环 |
+
+## 何时派发 Subagent vs 主 Agent 自己做
+
+**核心原则：能写成 spec 的独立任务派发，需要摸着石头过河的自己做。**
+
+### 适合派发 Subagent（有明确输入/输出边界）
+
+| 场景 | Agent | 原因 |
+|------|-------|------|
+| 按 plan 写独立模块 | disciplined-coder | 有完整设计文档，不需试错 |
+| E2E 集成测试 | e2e-code-tester | 明确输入（代码模块）+ 明确输出（pass/fail/bug report） |
+| ML 文献/数据集搜索 | research-scout | 一次性检索，返回结果即可 |
+| 论文/博客撰写 | academic-content-writer | 给定素材和里程碑，无迭代 |
+| 多个互不依赖的独立任务 | 并行派发 | 节省时间 |
+
+### 必须主 Agent 亲自做（需要判断和快速试错）
+
+| 场景 | 原因 |
+|------|------|
+| **交互式调试** | 读日志 → 改参数 → 重跑，循环快。Subagent 卡在 thinking 阶段不产出 |
+| **探索性环境检查** | "看看环境有什么问题"——没有明确边界，agent 迷失在读文件中 |
+| **依赖实时反馈的操作** | 启动服务等 5 分钟，agent 不知道在等还是卡了，主 agent 可直接等 |
+| **需要判断和决策的任务** | agent 不敢做决定，反复读代码而不行动 |
+| **每一步依赖上一步结果** | 串行任务，subagent 的沟通 overhead 高于直接做 |
+
+### 判断标准
+
+```
+✓ 派发: 任务有完整的书面 spec → subagent
+✗ 自己做: 任务需要"摸着石头过河" → 主 agent
+```
+
+### Subagent 失败模式记录
+
+- **2026-06-12**: experiment agent 不读已有代码就写脚本（忽略 `start_experience.sh`），已合并入 coder
+- **2026-06-12**: coder agent 卡死，0 行输出——调试任务不能派 subagent
 
 ## 开发工作流
 
@@ -100,9 +151,7 @@
       │
       └─ 输出: plans/{feature_name}_plan.md
            │
-           ├─ 编码实现 → 派发 disciplined-coder
-           │
-           └─ 实验验证 → 派发 research-experiment-planner
+           └─ 派发 disciplined-coder (编码 + 实验一体化)
 ```
 
 Plan 文档需包含：目标与背景、技术方案、实现步骤与验证标准、依赖与风险。
@@ -133,15 +182,12 @@ disciplined-coder                     e2e-code-tester
 
 ### 3. Linux 远程实验
 
-```
-disciplined-coder ←→ research-experiment-planner
-    (调试 & 修复)          (执行训练 & 观察 & 分析)
-```
+**disciplined-coder 全权负责**——编码、部署、启动服务、执行训练、监控曲线、诊断问题、修改代码、重新实验，全在一个 agent 内闭环。
 
-- 代码部署到 Linux 后，coder 负责调试
-- research-experiment-planner 执行训练，观察曲线和收敛，诊断问题
-- 发现问题 → 反馈给 coder → 修改代码 → 重新实验
+- 使用 `scripts/start_experience.sh` 启动 vllm + nanobot 服务栈
+- 使用 `scripts/autodl_sync.py` 同步代码和数据到远程
 - **每次实验的观察结论写入对应 `plans/` 文档的 "实验结果" 段落**
+- **读代码优先**: 执行任何实验前必须读完相关代码和已有脚本
 
 ### 4. 文献撰写
 
@@ -193,20 +239,15 @@ python .claude/agent_message.py list-agents
 
 ## 硬件环境
 
-远程 Linux GPU 机器 (AutoDL, RTX 3090 24GB)，SSH 连接。
-详见 `.vscode/sftp.json` 以及 memory `remote_env.md`。
+远程 Linux GPU 机器 (AutoDL, RTX 4090 48GB)，SSH 连接。
+同步工具: `scripts/autodl_sync.py`，详见 `.vscode/sftp.json` 以及 memory `remote_env.md`。
 
-## 项目文档索引
+## 其他参考
 
 | 文档 | 说明 |
 |------|------|
-| `docs/plan.md` | 完整实验计划（3-layer reward + 4 phases） |
-| `docs/roadmap.md` | 路线图与历史进度 |
-| `docs/tau_bench_format.md` | tau-bench 数据格式分析 |
-| `docs/mua-rl_research.md` | MUA-RL 调研报告 |
 | `.claude/messages/PROTOCOL.md` | 子 agent 消息通信协议 |
 | memory `remote_env.md` | 远程服务器连接信息 |
-| memory `project-phase4-status.md` | 项目当前状态 |
 
 ## 当前进度 (2026-06-12)
 

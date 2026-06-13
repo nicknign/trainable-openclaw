@@ -1,18 +1,29 @@
 """
-Phase 2: 自进化评判系统 — evaluation 包
+Evaluation package — interactive and rubric-based agent evaluation.
 
-数据流:
-  S2 trajectories.jsonl
-    → S3 trajectory_eval: 分级 + 提取训练对 + 聚合 Rubric 种子
-    → B1 feedback: LLM 分析反馈模式
-    → B2 rubric: LLM 生成评分 Rubric
-    → B3 judge: 执行 Rubric 打分 → GRPO reward
+Interactive (new):
+    SimulatedUser → InteractiveEvaluator → EvalReport
+    Metric: rounds-to-completion (lower = better)
 
-Usage:
-    from trainable_openclaw.evaluation import (
-        trajectory_eval,  # S3
-        feedback,          # B1
-        rubric,            # B2
-        judge,             # B3
-    )
+Rubric-based (legacy, retained for reference):
+    trajectory_eval → feedback → rubric → judge
 """
+
+from trainable_openclaw.evaluation.simulated_user import SimulatedUser, UserResponse
+from trainable_openclaw.evaluation.interactive_eval import (
+    AgentRunner,
+    InteractiveEvaluator,
+    TaskResult,
+    EvalReport,
+)
+from trainable_openclaw.evaluation.qwen_agent_runner import QwenAgentRunner
+
+__all__ = [
+    "SimulatedUser",
+    "UserResponse",
+    "AgentRunner",
+    "QwenAgentRunner",
+    "InteractiveEvaluator",
+    "TaskResult",
+    "EvalReport",
+]

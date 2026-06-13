@@ -75,6 +75,45 @@ def _calculate_order_total(items: list[dict]) -> float:
 
 
 # ---------------------------------------------------------------------------
+# 0. get_user_orders
+# ---------------------------------------------------------------------------
+
+class GetUserOrdersTool(MockTool):
+    name = "get_user_orders"
+    description = "Get all orders for a specific user by their user ID. Returns a list of order summaries."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "user_id": {
+                "type": "string",
+                "description": "The user ID (e.g. 'U001').",
+            },
+        },
+        "required": ["user_id"],
+    }
+
+    def execute(self, arguments: dict[str, Any], db_state: dict[str, Any]) -> dict[str, Any]:
+        err = self._validate_args(arguments)
+        if err:
+            return err
+        user = _find_user(db_state, arguments["user_id"])
+        if user is None:
+            return {"status": "error", "message": f"User '{arguments['user_id']}' not found"}
+        orders = [
+            {
+                "order_id": o["order_id"],
+                "status": o["status"],
+                "items": [{"name": it["name"], "quantity": it["quantity"], "unit_price": it["unit_price"]} for it in o.get("items", [])],
+                "created_at": o.get("created_at", ""),
+                "total": o.get("payment", {}).get("amount", 0.0),
+            }
+            for o in db_state["orders"]
+            if o["user_id"] == arguments["user_id"]
+        ]
+        return {"status": "success", "result": orders}
+
+
+# ---------------------------------------------------------------------------
 # 1. find_user_id_by_name_zip
 # ---------------------------------------------------------------------------
 
@@ -750,8 +789,9 @@ class ReturnDeliveredOrderItemsTool(MockTool):
 # ---------------------------------------------------------------------------
 
 def _make_retail_tools() -> list[MockTool]:
-    """Instantiate all 14 retail-domain tools + 3 shared utilities."""
+    """Instantiate all 15 retail-domain tools + 3 shared utilities."""
     return [
+        GetUserOrdersTool(),
         FindUserByNameZipTool(),
         FindUserByEmailTool(),
         GetUserDetailsTool(),
@@ -777,6 +817,7 @@ retail_tools: list[MockTool] = _make_retail_tools()
 
 # Re-export individual tool classes for direct import
 __all__ = [
+    "GetUserOrdersTool",
     "FindUserByNameZipTool",
     "FindUserByEmailTool",
     "GetUserDetailsTool",

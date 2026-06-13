@@ -30,7 +30,6 @@ VALID_AGENTS = {
     "disciplined-coder",
     "e2e-code-tester",
     "research-scout",
-    "research-experiment-planner",
     "academic-content-writer",
 }
 
