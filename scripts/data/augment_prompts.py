@@ -11,9 +11,9 @@ Phase 2: LLM paraphrasing via DeepSeek (optional)
 Phase 3: Train/val split (9:1 from augmented train, test stays holdout)
 
 Usage:
-    python scripts/augment_prompts.py --train-target 500 --test-target 50 --validate 20
-    python scripts/augment_prompts.py --dry-run  # inspect entity extraction
-    python scripts/augment_prompts.py --llm-paraphrase  # Phase 1 + Phase 2
+    python scripts/data/augment_prompts.py --train-target 500 --test-target 50 --validate 20
+    python scripts/data/augment_prompts.py --dry-run  # inspect entity extraction
+    python scripts/data/augment_prompts.py --llm-paraphrase  # Phase 1 + Phase 2
 
 Outputs:
     data/tau_bench/train_prompts_augmented.jsonl  — 450 entries (after 9:1 split)

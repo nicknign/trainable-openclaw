@@ -2,9 +2,9 @@
 Download tau-bench data from HuggingFace (APIGen) and GitHub.
 
 Usage:
-    python scripts/download_tau_bench.py          # download all
-    python scripts/download_tau_bench.py --hf-only  # only HuggingFace
-    python scripts/download_tau_bench.py --hf-endpoint https://hf-mirror.com  # China mirror
+    python scripts/data/download_tau_bench.py          # download all
+    python scripts/data/download_tau_bench.py --hf-only  # only HuggingFace
+    python scripts/data/download_tau_bench.py --hf-endpoint https://hf-mirror.com  # China mirror
 """
 import argparse
 import json

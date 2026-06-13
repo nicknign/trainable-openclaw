@@ -4,7 +4,7 @@ Reads test_prompts_augmented.jsonl, runs agent-vs-simulated-user loop
 for each task, saves aggregated report and per-task trajectories.
 
 Usage:
-    python scripts/run_full_eval.py [--max-rounds N]
+    python scripts/eval/run_full_eval.py [--max-rounds N]
 
 API config: deepseek-chat via DeepSeek API.
 """

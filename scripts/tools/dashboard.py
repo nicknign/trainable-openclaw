@@ -5,8 +5,8 @@ Phase 3 C2: Training Dashboard
 Simple Streamlit web UI for monitoring the trainable-openclaw system.
 
 Usage:
-    streamlit run scripts/dashboard.py
-    streamlit run scripts/dashboard.py -- --db data/conversations.db --rubrics data/rubrics_category.json
+    streamlit run scripts/tools/dashboard.py
+    streamlit run scripts/tools/dashboard.py -- --db data/conversations.db --rubrics data/rubrics_category.json
 """
 
 import argparse

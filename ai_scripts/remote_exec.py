@@ -1,8 +1,8 @@
 """Execute commands on remote Linux GPU machine via paramiko SSH.
 
 Usage:
-    python scripts/remote_exec.py "cmd1" "cmd2" ...
-    python scripts/remote_exec.py --check   # run standard health check
+    python ai_scripts/remote_exec.py "cmd1" "cmd2" ...
+    python ai_scripts/remote_exec.py --check   # run standard health check
 """
 
 import sys

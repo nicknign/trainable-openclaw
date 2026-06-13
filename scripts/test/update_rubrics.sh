@@ -1,6 +1,6 @@
 #!/bin/bash
 # RubricEngine — 动态分析错误案例 + 生成/合并/精炼 Rubrics
-# 用法: bash scripts/update_rubrics.sh [轨迹文件1] [轨迹文件2] ...
+# 用法: bash scripts/test/update_rubrics.sh [轨迹文件1] [轨迹文件2] ...
 set -e
 
 cd /data/wangye/trainable-openclaw

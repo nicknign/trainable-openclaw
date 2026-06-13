@@ -20,10 +20,10 @@ Pipeline:
   4. Print statistics
 
 Usage:
-    python scripts/prepare_lmsys.py                      # full pipeline
-    python scripts/prepare_lmsys.py --max-rows 5000      # limit rows for dev
-    python scripts/prepare_lmsys.py --stats-only         # print stats from existing DB
-    python scripts/prepare_lmsys.py --no-import          # export JSONL only
+    python scripts/data/prepare_lmsys.py                      # full pipeline
+    python scripts/data/prepare_lmsys.py --max-rows 5000      # limit rows for dev
+    python scripts/data/prepare_lmsys.py --stats-only         # print stats from existing DB
+    python scripts/data/prepare_lmsys.py --no-import          # export JSONL only
 """
 
 from __future__ import annotations

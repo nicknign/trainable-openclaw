@@ -1,8 +1,8 @@
 """Run interactive evaluation with Qwen3-4B (nanobot) agent + DeepSeek simulated user.
 
 Usage:
-    python scripts/run_nanobot_eval.py                  # first task
-    python scripts/run_nanobot_eval.py --task 3         # task index 3
+    python ai_scripts/run_nanobot_eval.py                  # first task
+    python ai_scripts/run_nanobot_eval.py --task 3         # task index 3
 """
 
 from __future__ import annotations

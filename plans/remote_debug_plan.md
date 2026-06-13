@@ -36,11 +36,11 @@ nanobot 仍保留在 :8900 作 Gateway/WebUI，但评测 pipeline 不经过它�
 
 ## Step 1: 环境检查
 
-机器上线后，用 `scripts/remote_check_env.py` 验证：
+机器上线后，用 `ai_scripts/remote_check_env.py` 验证：
 
 ```bash
-python scripts/autodl_sync.py  # 同步最新代码
-python scripts/autodl_sync.py --exec "/data/anaconda3/bin/python /data/wangye/trainable-openclaw/scripts/remote_check_env.py"
+python scripts/tools/autodl_sync.py  # 同步最新代码
+python scripts/tools/autodl_sync.py --exec "/data/anaconda3/bin/python /data/wangye/trainable-openclaw/ai_scripts/remote_check_env.py"
 ```
 
 检查项：
@@ -52,10 +52,10 @@ python scripts/autodl_sync.py --exec "/data/anaconda3/bin/python /data/wangye/tr
 
 ## Step 2: 启动 vllm + nanobot
 
-执行 `scripts/start_experience.sh`：
+执行 `scripts/deploy/start_experience.sh`：
 
 ```bash
-python scripts/autodl_sync.py --exec "bash /data/wangye/trainable-openclaw/scripts/start_experience.sh"
+python scripts/tools/autodl_sync.py --exec "bash /data/wangye/trainable-openclaw/scripts/deploy/start_experience.sh"
 ```
 
 验证：
@@ -118,7 +118,7 @@ def strip_think(text: str) -> str:
 修改后的 AgentRunner + vllm :8000 + SimulatedUser(deepseek-chat)，跑第 1 条 task。
 
 ```bash
-python scripts/autodl_sync.py --exec "/data/anaconda3/bin/python /data/wangye/trainable-openclaw/scripts/remote_eval_one.py"
+python scripts/tools/autodl_sync.py --exec "/data/anaconda3/bin/python /data/wangye/trainable-openclaw/ai_scripts/remote_eval_one.py"
 ```
 
 成功标准：
@@ -130,7 +130,7 @@ python scripts/autodl_sync.py --exec "/data/anaconda3/bin/python /data/wangye/tr
 ## 产出
 
 ```
-scripts/
+ai_scripts/
 ├── test_vllm_tools.py         # NEW: vllm 工具调用测试
 ├── remote_eval_one.py          # MODIFY: AGENT_BASE_URL → :8000
 └── test_vllm_multi.py          # 已有: 多轮对话测试

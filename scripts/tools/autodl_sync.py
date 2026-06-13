@@ -1,12 +1,12 @@
 """Sync local project files to AutoDL remote machine.
 
 Usage:
-    python scripts/autodl_sync.py                  # sync changed files
-    python scripts/autodl_sync.py --full           # full sync all source files
-    python scripts/autodl_sync.py --dry-run        # show what would sync
-    python scripts/autodl_sync.py --exec CMD       # run command on remote
-    python scripts/autodl_sync.py --tail FILE      # tail remote log file
-    python scripts/autodl_sync.py --download REMOTE LOCAL  # download file
+    python scripts/tools/autodl_sync.py                  # sync changed files
+    python scripts/tools/autodl_sync.py --full           # full sync all source files
+    python scripts/tools/autodl_sync.py --dry-run        # show what would sync
+    python scripts/tools/autodl_sync.py --exec CMD       # run command on remote
+    python scripts/tools/autodl_sync.py --tail FILE      # tail remote log file
+    python scripts/tools/autodl_sync.py --download REMOTE LOCAL  # download file
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import os
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 SFTP_CONFIG_PATH = PROJECT_ROOT / ".vscode" / "sftp.json"
 
 
@@ -88,8 +88,8 @@ def cmd_sync(dry_run: bool = False, full: bool = False):
         ("data/tau_bench/test_prompts_augmented.jsonl", "data/tau_bench/test_prompts_augmented.jsonl"),
         ("data/tau_bench/train_prompts_augmented.jsonl", "data/tau_bench/train_prompts_augmented.jsonl"),
         ("data/tau_bench/val_prompts_augmented.jsonl", "data/tau_bench/val_prompts_augmented.jsonl"),
-        ("scripts/run_single_eval.py", "scripts/run_single_eval.py"),
-        ("scripts/run_full_eval.py", "scripts/run_full_eval.py"),
+        ("scripts/eval/run_single_eval.py", "scripts/eval/run_single_eval.py"),
+        ("scripts/eval/run_full_eval.py", "scripts/eval/run_full_eval.py"),
         ("ai_scripts/remote_check_env.py", "ai_scripts/remote_check_env.py"),
         ("ai_scripts/remote_eval_one.py", "ai_scripts/remote_eval_one.py"),
     ]

@@ -10,7 +10,7 @@ For each augmented prompt:
 5. Write back updated evaluation fields to the JSONL files
 
 Usage:
-    python scripts/align_eval_assertions.py [--dry-run] [--limit N]
+    python scripts/data/align_eval_assertions.py [--dry-run] [--limit N]
 """
 
 from __future__ import annotations

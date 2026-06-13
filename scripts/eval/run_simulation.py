@@ -10,16 +10,16 @@ Phase 1.5 S2：用户模拟纠错对话流水线
 
 用法：
     # 真实模式（需要 GPU 服务器运行中）
-    python scripts/run_simulation.py --no-mock --max-prompts 100
+    python scripts/eval/run_simulation.py --no-mock --max-prompts 100
 
     # 模拟模式（DeepSeek 同时模拟双方，无需 GPU）
-    python scripts/run_simulation.py --mock --max-prompts 20
+    python scripts/eval/run_simulation.py --mock --max-prompts 20
 
     # 空跑验证（不调用 API）
-    python scripts/run_simulation.py --dry-run
+    python scripts/eval/run_simulation.py --dry-run
 
     # 查看已有结果的统计
-    python scripts/run_simulation.py --stats-only --output data/trajectories_live.jsonl
+    python scripts/eval/run_simulation.py --stats-only --output data/trajectories_live.jsonl
 
 依赖：
     pip install openai tqdm
@@ -713,7 +713,7 @@ def main() -> None:
     # 验证种子文件
     if not os.path.exists(args.seed_file):
         print(f"错误：找不到种子文件: {args.seed_file}")
-        print("  请先运行: python scripts/extract_seed_prompts.py")
+        print("  请先运行: python scripts/data/extract_seed_prompts.py")
         sys.exit(1)
 
     # 加载种子

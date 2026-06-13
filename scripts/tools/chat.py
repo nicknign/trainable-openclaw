@@ -2,10 +2,10 @@
 """Interactive chat CLI for the veRL inference server.
 
 Usage:
-    python scripts/chat.py                          # default http://localhost:8000
-    python scripts/chat.py http://remote:8000       # custom server
-    python scripts/chat.py -t 0.5 -m 512            # temperature + max_tokens
-    python scripts/chat.py -M gpt-4o                # model name for load balancing
+    python scripts/tools/chat.py                          # default http://localhost:8000
+    python scripts/tools/chat.py http://remote:8000       # custom server
+    python scripts/tools/chat.py -t 0.5 -m 512            # temperature + max_tokens
+    python scripts/tools/chat.py -M gpt-4o                # model name for load balancing
 """
 
 import json

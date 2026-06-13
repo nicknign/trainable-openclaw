@@ -13,14 +13,14 @@ correction-rate evaluation. Runs the full cycle:
   6. (Optional) Update rubrics from new conversation logs
 
 Usage:
-    python scripts/run_phase3_pipeline.py \
+    python scripts/eval/run_phase3_pipeline.py \
         --train-data data/training_pairs.jsonl \
         --test-data data/test_eval/training_pairs.jsonl \
         --rubrics data/rubrics.json \
         --model-server http://localhost:8000/v1
 
 Or as a dry-run (no API calls):
-    python scripts/run_phase3_pipeline.py --dry-run --stats-only
+    python scripts/eval/run_phase3_pipeline.py --dry-run --stats-only
 """
 
 from __future__ import annotations

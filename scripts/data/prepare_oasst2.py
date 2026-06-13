@@ -12,10 +12,10 @@ Pipeline:
 
 Usage::
 
-    python scripts/prepare_oasst2.py                    # full pipeline
-    python scripts/prepare_oasst2.py --split-only       # split only, skip store import
-    python scripts/prepare_oasst2.py --test-size 0.1    # 10% test split
-    python scripts/prepare_oasst2.py --stats-only       # print stats from existing splits
+    python scripts/data/prepare_oasst2.py                    # full pipeline
+    python scripts/data/prepare_oasst2.py --split-only       # split only, skip store import
+    python scripts/data/prepare_oasst2.py --test-size 0.1    # 10% test split
+    python scripts/data/prepare_oasst2.py --stats-only       # print stats from existing splits
 
 Requires: ``datasets`` library (``pip install datasets``)
 """

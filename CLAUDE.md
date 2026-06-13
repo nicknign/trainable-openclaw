@@ -184,8 +184,8 @@ disciplined-coder                     e2e-code-tester
 
 **disciplined-coder 全权负责**——编码、部署、启动服务、执行训练、监控曲线、诊断问题、修改代码、重新实验，全在一个 agent 内闭环。
 
-- 使用 `scripts/start_experience.sh` 启动 vllm + nanobot 服务栈
-- 使用 `scripts/autodl_sync.py` 同步代码和数据到远程
+- 使用 `scripts/deploy/start_experience.sh` 启动 vllm + nanobot 服务栈
+- 使用 `scripts/tools/autodl_sync.py` 同步代码和数据到远程
 - **每次实验的观察结论写入对应 `plans/` 文档的 "实验结果" 段落**
 - **读代码优先**: 执行任何实验前必须读完相关代码和已有脚本
 
@@ -240,13 +240,13 @@ python .claude/agent_message.py list-agents
 ## 硬件环境
 
 远程 Linux GPU 机器 (AutoDL, RTX 4090 48GB)，SSH 连接。
-同步工具: `scripts/autodl_sync.py`，详见 `.vscode/sftp.json` 以及 memory `remote_env.md`。
+同步工具: `scripts/tools/autodl_sync.py`，详见 `.vscode/sftp.json` 以及 memory `remote_env.md`。
 
 ## 目录规范
 
 | 目录 | 用途 | 写入者 |
 |------|------|--------|
-| `scripts/` | 项目正式脚本，长期维护 | 人工审查后 |
+| `scripts/{deploy,data,eval,model,test,tools}/` | 项目正式脚本，按功能分类，长期维护 | 人工审查后 |
 | `ai_scripts/` | Agent 生成的临时/调试脚本 | 所有 agent |
 | `trainable_openclaw/` | Python 库代码 | 人工审查后 |
 | `plans/` | 实施计划文档 | 主 agent |

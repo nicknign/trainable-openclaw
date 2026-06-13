@@ -3,7 +3,7 @@
 # End-to-end GSM8K GRPO training test — 20+ steps, batch size 64
 #
 # Usage (on remote Linux GPU server):
-#   bash scripts/run_gsm8k_e2e_test.sh
+#   bash scripts/test/run_gsm8k_e2e_test.sh
 #
 # Config (override via env vars):
 #   STEPS=20          Training steps per cycle

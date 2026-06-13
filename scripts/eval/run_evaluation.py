@@ -6,13 +6,13 @@ Phase 2 评估流水线: S3 → B1 → B2 → B3
 
 用法:
     # 完整流水线（需要 DeepSeek API）
-    python scripts/run_evaluation.py --input data/train_trajectories.jsonl
+    python scripts/eval/run_evaluation.py --input data/train_trajectories.jsonl
 
     # 仅 S3 轨迹评估（不需要 API）
-    python scripts/run_evaluation.py --input data/train_trajectories.jsonl --s3-only
+    python scripts/eval/run_evaluation.py --input data/train_trajectories.jsonl --s3-only
 
     # 简单模式（不调用 LLM，用模板生成 Rubric）
-    python scripts/run_evaluation.py --input data/train_trajectories.jsonl --simple
+    python scripts/eval/run_evaluation.py --input data/train_trajectories.jsonl --simple
 """
 
 from __future__ import annotations

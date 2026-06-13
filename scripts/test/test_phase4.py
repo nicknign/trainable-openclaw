@@ -4,7 +4,7 @@ Phase 4 integration quick-start and validation script.
 
 Usage::
 
-    python scripts/test_phase4.py [--api-base http://localhost:8000/v1] [--quick]
+    python scripts/test/test_phase4.py [--api-base http://localhost:8000/v1] [--quick]
 
 Tests:
   1. nanobot config generation and validation

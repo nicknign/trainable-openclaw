@@ -20,7 +20,7 @@ Step 2 — Interactive baseline evaluation:
         data/eval/baseline_trajectories.jsonl
 
 Usage:
-    python scripts/split_and_evaluate.py [--seed 42] [--max-rounds 8]
+    python scripts/data/split_and_evaluate.py [--seed 42] [--max-rounds 8]
                                         [--test-ratio 0.2] [--eval-limit N]
                                         [--step1-only]
 """

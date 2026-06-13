@@ -7,9 +7,9 @@ performs stratified sampling by category, filters low-quality prompts,
 and outputs a JSONL file of seed prompts for the simulation pipeline (S1).
 
 Usage:
-    python scripts/extract_seed_prompts.py
-    python scripts/extract_seed_prompts.py --db data/conversations.db --output data/seed_prompts.jsonl
-    python scripts/extract_seed_prompts.py --max-per-category 400 --min-length 15
+    python scripts/data/extract_seed_prompts.py
+    python scripts/data/extract_seed_prompts.py --db data/conversations.db --output data/seed_prompts.jsonl
+    python scripts/data/extract_seed_prompts.py --max-per-category 400 --min-length 15
 """
 
 from __future__ import annotations
@@ -285,7 +285,7 @@ def main() -> None:
 
     if not os.path.exists(args.db):
         print(f"ERROR: Database not found: {args.db}")
-        print(f"  Run 'python scripts/prepare_lmsys.py' first to import the LMSYS dataset.")
+        print(f"  Run 'python scripts/data/prepare_lmsys.py' first to import the LMSYS dataset.")
         sys.exit(1)
 
     print("Extracting seed prompts from LMSYS-Chat-1M...")

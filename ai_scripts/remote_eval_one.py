@@ -1,8 +1,8 @@
 """Run one interactive eval task on remote (Qwen3-4B via nanobot, DeepSeek as simulated user).
 
 Usage (on remote):
-    /data/anaconda3/bin/python scripts/remote_eval_one.py
-    /data/anaconda3/bin/python scripts/remote_eval_one.py --task 3
+    /data/anaconda3/bin/python ai_scripts/remote_eval_one.py
+    /data/anaconda3/bin/python ai_scripts/remote_eval_one.py --task 3
 """
 
 from __future__ import annotations

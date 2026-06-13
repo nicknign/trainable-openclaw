@@ -8,9 +8,9 @@ Reads S2 simulation trajectories and counts outcomes:
 纠错率 = (total - 直接通过) / total
 
 Usage:
-    python scripts/calc_correction_rate.py data/test_trajectories.jsonl
-    python scripts/calc_correction_rate.py data/train_trajectories.jsonl
-    python scripts/calc_correction_rate.py --all  # both train and test
+    python scripts/eval/calc_correction_rate.py data/test_trajectories.jsonl
+    python scripts/eval/calc_correction_rate.py data/train_trajectories.jsonl
+    python scripts/eval/calc_correction_rate.py --all  # both train and test
 """
 
 import json

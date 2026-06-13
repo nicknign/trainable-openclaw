@@ -3,7 +3,7 @@
 Requires DEEPSEEK_API_KEY environment variable.
 
 Usage:
-    python scripts/smoke_test_interactive_eval.py [--tasks N] [--max-rounds M]
+    python ai_scripts/smoke_test_interactive_eval.py [--tasks N] [--max-rounds M]
 """
 
 from __future__ import annotations

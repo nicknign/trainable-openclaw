@@ -10,7 +10,7 @@ Tests:
   5. Reward tracking in logs
 
 Usage (on remote machine):
-  python3 scripts/test_serve_ppo_lifecycle.py [--host localhost] [--port 8000]
+  python3 scripts/test/test_serve_ppo_lifecycle.py [--host localhost] [--port 8000]
 """
 
 import argparse

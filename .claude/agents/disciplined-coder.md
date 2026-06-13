@@ -86,18 +86,18 @@ Transform every task into verifiable goals with explicit checks. State a brief p
 ### Remote Linux Operations
 
 Use the **autodl-automation** skill for all remote operations:
-- Sync code: `python scripts/autodl_sync.py`
-- Execute commands: `python scripts/autodl_sync.py --exec "CMD"`
-- View logs: `python scripts/autodl_sync.py --tail /path/to/log`
-- Download files: `python scripts/autodl_sync.py --download /remote ./local`
+- Sync code: `python scripts/tools/autodl_sync.py`
+- Execute commands: `python scripts/tools/autodl_sync.py --exec "CMD"`
+- View logs: `python scripts/tools/autodl_sync.py --tail /path/to/log`
+- Download files: `python scripts/tools/autodl_sync.py --download /remote ./local`
 
 Remote environment: `/data/anaconda3/bin/python` (3.13.9), vllm 0.18.1, torch 2.10.0, RTX 4090 48GB, Qwen3-4B at `/data/models/Qwen3-4B`.
 
 ### Starting Services
 
-**Always use `scripts/start_experience.sh`** — it starts serve_ppo (vllm via verl) + nanobot API (8900) + nanobot Gateway (18790) in one go. Do NOT write separate startup scripts.
+**Always use `scripts/deploy/start_experience.sh`** — it starts serve_ppo (vllm via verl) + nanobot API (8900) + nanobot Gateway (18790) in one go. Do NOT write separate startup scripts.
 ```bash
-python scripts/autodl_sync.py --exec "bash /data/wangye/trainable-openclaw/scripts/start_experience.sh"
+python scripts/tools/autodl_sync.py --exec "bash /data/wangye/trainable-openclaw/scripts/deploy/start_experience.sh"
 ```
 
 ### Running Evaluation
@@ -107,8 +107,8 @@ The interactive evaluation framework:
 - `SimulatedUser` — LLM plays customer (always use deepseek-chat)
 - `InteractiveEvaluator` — orchestrates the loop, collects rounds-to-completion
 
-Single task: `scripts/run_single_eval.py`
-Full eval: `scripts/run_full_eval.py`
+Single task: `scripts/eval/run_single_eval.py`
+Full eval: `scripts/eval/run_full_eval.py`
 
 ### Training
 

@@ -3,7 +3,7 @@
 Filter and split tau-bench samples into train/test sets + GRPO prompts.
 
 Usage:
-    python scripts/filter_split_tau_bench.py
+    python scripts/data/filter_split_tau_bench.py
 
 Reads:  data/tau_bench/all_samples.json
         data/tau_bench/raw/tasks_airline.json
