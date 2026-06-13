@@ -46,6 +46,32 @@ RULES:
 Respond ONLY with a JSON object (no markdown fences):
 {{"message": "<your natural response to the agent>", "status": "<continue|complete|give_up>", "satisfaction": <0.0-1.0>}}"""
 
+_TEACHER_SYSTEM_PROMPT = """You are both a customer AND a teacher evaluating a trainee customer service agent. You play the customer role while giving constructive feedback when the agent makes mistakes.
+
+YOUR PERSONA AND TASK:
+{persona}
+
+SUCCESS CRITERIA (what needs to happen for you to be satisfied):
+{success_criteria}
+
+RULES:
+1. Speak naturally as a customer — use everyday language, stay in character
+2. When the agent makes a CLEAR MISTAKE, point it out explicitly and suggest the right approach:
+   - Wrong tool used (e.g. searching files instead of order lookup): "You should use the order lookup tool, not search a text file. Please look up my order properly."
+   - Wrong data/facts: "That doesn't match what I told you — please re-read my request."
+   - Looping/repeating same response: "You keep saying the same thing. Try a different approach — maybe check my account first?"
+   - Irrelevant/generic answer: "You're guessing instead of using your tools. Please actually look up the information."
+3. Give the agent 2-3 chances to correct each mistake before giving up
+4. When the agent IMPROVES after your correction, acknowledge it positively
+5. If the agent CORRECTLY resolves all your requests → thank them, status: complete, satisfaction: 1.0
+6. If the agent PARTIALLY resolves issues → acknowledge progress, clarify what remains (status: continue, satisfaction: 0.4-0.8)
+7. If the agent keeps making the same mistake after 3+ corrections → status: give_up, satisfaction: 0.0-0.2
+8. Be SPECIFIC in your corrections — name the tool they should use, or the specific data to check
+9. Never break character — don't say "as a teacher" or mention the test/training
+
+Respond ONLY with a JSON object (no markdown fences):
+{{"message": "<natural customer response with correction if needed>", "status": "<continue|complete|give_up>", "satisfaction": <0.0-1.0>}}"""
+
 
 class SimulatedUser:
     """LLM-backed simulated customer for evaluating tau-bench agents."""
@@ -56,12 +82,14 @@ class SimulatedUser:
         model: str = "deepseek-chat",
         api_key: str = "",
         base_url: str = "https://api.deepseek.com",
+        mode: str = "teacher",
     ):
         self._task = task
         self._model = model
         self._api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
         self._base_url = base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
         self._client = None
+        self._mode = mode  # "customer" or "teacher"
         self.history: list[dict] = []  # {"role": "agent"|"user", "content": str}
         self.round_count = 0
 
@@ -71,20 +99,67 @@ class SimulatedUser:
 
     @property
     def initial_message(self) -> str:
-        """Derive the opening customer message from the task prompt."""
+        """Derive the opening customer message from the task prompt.
+
+        Extracts user identity (name, id, email, zip) from the first lines
+        so the agent knows who it's talking to without wasting rounds.
+        """
+        import re
+
         prompt = self._task.get("prompt", "")
-        # The tau-bench prompt format is:
-        #   You are <Name>. Your user id is <id>.
-        #   You want to <task description>.
         lines = [l.strip() for l in prompt.split("\n") if l.strip()]
+
+        # Extract identity from first 1-2 lines — stop name at and/your/with/,/.
+        name_match = re.search(
+            r"(?:You are|(?:You|Your) name is)\s+(.+?)(?:\s+(?:and|with|your|whose)\s|[,.]\s|$)",
+            lines[0],
+        )
+        user_name = name_match.group(1).strip().rstrip(",") if name_match else ""
+        user_id = ""
+        email = ""
+        zip_code = ""
+        for line in lines[:2]:
+            uid = re.search(r"user id is\s+(\S+)", line, re.IGNORECASE)
+            if uid:
+                user_id = uid.group(1).rstrip(".,")
+            em = re.search(r"email\s+(?:address\s+)?is\s+(\S+@\S+)", line, re.IGNORECASE)
+            if em:
+                email = em.group(1).rstrip(".,")
+            zc = re.search(r"zip code is\s+(\d{5})", line, re.IGNORECASE)
+            if zc:
+                zip_code = zc.group(1)
+
+        # Build identity intro
+        identity_parts = []
+        if user_name:
+            identity_parts.append(f"My name is {user_name}")
+        if user_id:
+            identity_parts.append(f"my user ID is {user_id}")
+        elif email:
+            identity_parts.append(f"my email is {email}")
+        if zip_code:
+            identity_parts.append(f"my zip code is {zip_code}")
+        identity = ". ".join(identity_parts)
+        if identity:
+            identity = identity[0].upper() + identity[1:] + "."
+
+        # Extract what the user wants, converting "You want" → "I want"
         want_lines = [l for l in lines if "want to" in l.lower() or "need to" in l.lower() or "wish to" in l.lower()]
         if want_lines:
-            return f"Hi there! {want_lines[0]}"
-        # Fallback: use the third line onward as the request
-        task_lines = [l for l in lines if not l.lower().startswith("you are") and "user id" not in l.lower()]
-        if task_lines:
-            return f"Hi there! {' '.join(task_lines)}"
-        return "Hi, I need some help with my order."
+            request = re.sub(r"^(You|you)\s", "I ", want_lines[0])
+        else:
+            task_lines = [l for l in lines if not l.lower().startswith("you are")
+                          and "user id" not in l.lower()
+                          and "email" not in l.lower()
+                          and "zip code" not in l.lower()
+                          and not l.lower().startswith("your name")
+                          and not l.lower().startswith("you name")]
+            request = " ".join(task_lines) if task_lines else "I need some help with my order."
+            request = re.sub(r"^(You|you)\s", "I ", request)
+
+        if identity:
+            return f"Hi there! {identity} {request}"
+        return f"Hi there! {request}"
 
     def respond(self, agent_message: str, tool_results: list[dict] | None = None) -> UserResponse:
         """Generate the customer's response to the agent's latest message.
@@ -173,7 +248,8 @@ class SimulatedUser:
 
     def _call_llm(self, prompt: str) -> str:
         client = self._get_client()
-        system = _SYSTEM_PROMPT.format(
+        template = _TEACHER_SYSTEM_PROMPT if self._mode == "teacher" else _SYSTEM_PROMPT
+        system = template.format(
             persona=self._task.get("prompt", ""),
             success_criteria=self._format_success_criteria(),
         )

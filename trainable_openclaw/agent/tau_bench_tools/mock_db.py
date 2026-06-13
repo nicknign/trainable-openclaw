@@ -523,6 +523,237 @@ def _seed_retail_products() -> list[dict[str, Any]]:
                 {"item_id": "I034", "variant_name": "Black / High-Back", "price": 429.99, "available": True},
             ],
         },
+        {
+            "product_id": "P013",
+            "name": "Mechanical Keyboard",
+            "type": "Electronics",
+            "description": (
+                "Tenkeyless mechanical keyboard with per-key RGB backlight, "
+                "hot-swappable switches, and PBT double-shot keycaps."
+            ),
+            "variants": [
+                {"item_id": "I035", "variant_name": "Clicky / Blue / No RGB", "price": 89.99, "available": True},
+                {"item_id": "I036", "variant_name": "Clicky / Blue / RGB", "price": 109.99, "available": True},
+                {"item_id": "I037", "variant_name": "Linear / Red / RGB", "price": 109.99, "available": True},
+                {"item_id": "I038", "variant_name": "Tactile / Brown / RGB", "price": 119.99, "available": True},
+                {"item_id": "I039", "variant_name": "Clicky / Blue / Full-Size / RGB", "price": 129.99, "available": True},
+            ],
+        },
+        {
+            "product_id": "P014",
+            "name": "Smart Thermostat",
+            "type": "Home",
+            "description": (
+                "Wi-Fi enabled smart thermostat with energy-saving scheduling, "
+                "remote sensor support, and voice assistant compatibility."
+            ),
+            "variants": [
+                {"item_id": "I040", "variant_name": "Apple HomeKit", "price": 179.99, "available": True},
+                {"item_id": "I041", "variant_name": "Google Home", "price": 179.99, "available": True},
+                {"item_id": "I042", "variant_name": "Alexa + HomeKit Dual", "price": 199.99, "available": True},
+            ],
+        },
+        {
+            "product_id": "P015",
+            "name": "Pro Tablet 11\"",
+            "type": "Electronics",
+            "description": (
+                "11-inch tablet with 2560x1600 display, 128GB storage, "
+                "Wi-Fi 6E, and stylus support."
+            ),
+            "variants": [
+                {"item_id": "I043", "variant_name": "Silver / 128GB / Wi-Fi", "price": 349.99, "available": True},
+                {"item_id": "I044", "variant_name": "Silver / 256GB / Wi-Fi", "price": 429.99, "available": True},
+                {"item_id": "I045", "variant_name": "Space Gray / 128GB / Wi-Fi", "price": 349.99, "available": True},
+                {"item_id": "I046", "variant_name": "Space Gray / 256GB / Wi-Fi", "price": 429.99, "available": True},
+            ],
+        },
+        {
+            "product_id": "P016",
+            "name": "Fleece Jacket",
+            "type": "Clothing",
+            "description": (
+                "Warm fleece jacket with zippered pockets, adjustable hem, "
+                "and moisture-wicking fabric. Available in multiple colors."
+            ),
+            "variants": [
+                {"item_id": "I047", "variant_name": "Red / M / Full-Zip", "price": 54.99, "available": True},
+                {"item_id": "I048", "variant_name": "Red / L / Full-Zip", "price": 54.99, "available": True},
+                {"item_id": "I049", "variant_name": "Red / L / Half-Zip", "price": 49.99, "available": True},
+                {"item_id": "I050", "variant_name": "Black / M / Full-Zip", "price": 54.99, "available": True},
+                {"item_id": "I051", "variant_name": "Navy / L / Full-Zip", "price": 54.99, "available": True},
+            ],
+        },
+        {
+            "product_id": "P017",
+            "name": "Pro Skateboard",
+            "type": "Sporting Goods",
+            "description": (
+                "Professional-grade skateboard with ABEC-9 bearings, "
+                "double-kick deck, and 99A wheels."
+            ),
+            "variants": [
+                {"item_id": "I052", "variant_name": "Maple / 32\"", "price": 79.99, "available": True},
+                {"item_id": "I053", "variant_name": "Maple / 34\"", "price": 89.99, "available": True},
+                {"item_id": "I054", "variant_name": "Bamboo / 32\"", "price": 94.99, "available": True},
+            ],
+        },
+        {
+            "product_id": "P018",
+            "name": "Action Camera",
+            "type": "Electronics",
+            "description": (
+                "4K action camera with electronic image stabilization, "
+                "waterproof to 33ft without housing, and voice control."
+            ),
+            "variants": [
+                {"item_id": "I055", "variant_name": "4K / Waterproof / Standard", "price": 249.99, "available": True},
+                {"item_id": "I056", "variant_name": "5K / Waterproof / Pro", "price": 349.99, "available": True},
+                {"item_id": "I057", "variant_name": "4K / Non-Waterproof / Budget", "price": 149.99, "available": True},
+            ],
+        },
+        {
+            "product_id": "P019",
+            "name": "Air Purifier",
+            "type": "Home",
+            "description": (
+                "HEPA air purifier with activated carbon filter, covers up to "
+                "500 sq ft, 3 fan speeds, sleep mode, and filter replacement indicator."
+            ),
+            "variants": [
+                {"item_id": "I058", "variant_name": "Standard / 300 sq ft", "price": 89.99, "available": True},
+                {"item_id": "I059", "variant_name": "Plus / 500 sq ft", "price": 149.99, "available": True},
+                {"item_id": "I060", "variant_name": "Pro / 800 sq ft", "price": 219.99, "available": True},
+            ],
+        },
+        {
+            "product_id": "P020",
+            "name": "Jigsaw Puzzle",
+            "type": "Toys & Games",
+            "description": (
+                "Premium jigsaw puzzle with precision-cut pieces, "
+                "vibrant artwork, and included poster guide."
+            ),
+            "variants": [
+                {"item_id": "I061", "variant_name": "500-Piece / Beginner", "price": 19.99, "available": True},
+                {"item_id": "I062", "variant_name": "1000-Piece / Intermediate", "price": 24.99, "available": True},
+                {"item_id": "I063", "variant_name": "2000-Piece / Advanced", "price": 34.99, "available": True},
+            ],
+        },
+        {
+            "product_id": "P021",
+            "name": "Cycling Helmet",
+            "type": "Sporting Goods",
+            "description": (
+                "Lightweight cycling helmet with MIPS protection, "
+                "adjustable fit system, and 18 ventilation channels."
+            ),
+            "variants": [
+                {"item_id": "I064", "variant_name": "Red / M / Standard", "price": 69.99, "available": True},
+                {"item_id": "I065", "variant_name": "Red / M / High-Ventilation", "price": 89.99, "available": True},
+                {"item_id": "I066", "variant_name": "Black / L / Standard", "price": 69.99, "available": True},
+                {"item_id": "I067", "variant_name": "White / M / High-Ventilation", "price": 89.99, "available": True},
+            ],
+        },
+        {
+            "product_id": "P022",
+            "name": "Luggage Set",
+            "type": "Travel",
+            "description": (
+                "Hardshell luggage set with spinner wheels, TSA-approved locks, "
+                "and expandable compartments."
+            ),
+            "variants": [
+                {"item_id": "I068", "variant_name": "2-Piece / Black / Hardshell", "price": 199.99, "available": True},
+                {"item_id": "I069", "variant_name": "2-Piece / Black / Soft", "price": 179.99, "available": True},
+                {"item_id": "I070", "variant_name": "3-Piece / Navy / Hardshell", "price": 269.99, "available": True},
+                {"item_id": "I071", "variant_name": "2-Piece / Red / Hardshell", "price": 199.99, "available": True},
+            ],
+        },
+        {
+            "product_id": "P023",
+            "name": "Outdoor Grill",
+            "type": "Outdoor",
+            "description": (
+                "Propane gas grill with 3 burners, porcelain-coated grates, "
+                "side burner, and electronic ignition."
+            ),
+            "variants": [
+                {"item_id": "I072", "variant_name": "3-Burner / Propane", "price": 299.99, "available": True},
+                {"item_id": "I073", "variant_name": "4-Burner / Propane", "price": 399.99, "available": True},
+                {"item_id": "I074", "variant_name": "3-Burner / Natural Gas", "price": 319.99, "available": False},
+            ],
+        },
+        {
+            "product_id": "P024",
+            "name": "E-Reader",
+            "type": "Electronics",
+            "description": (
+                "6.8-inch e-ink display with adjustable warm light, "
+                "waterproof (IPX8), 32GB storage, and weeks of battery life."
+            ),
+            "variants": [
+                {"item_id": "I075", "variant_name": "8GB / Wi-Fi / with Ads", "price": 99.99, "available": True},
+                {"item_id": "I076", "variant_name": "32GB / Wi-Fi / No Ads", "price": 139.99, "available": True},
+                {"item_id": "I077", "variant_name": "32GB / Cellular / No Ads", "price": 189.99, "available": True},
+            ],
+        },
+        {
+            "product_id": "P025",
+            "name": "Wireless Earbuds",
+            "type": "Electronics",
+            "description": (
+                "True wireless earbuds with ANC, 8-hour battery (30 with case), "
+                "IPX5 water resistance, and touch controls."
+            ),
+            "variants": [
+                {"item_id": "I078", "variant_name": "Black", "price": 79.99, "available": True},
+                {"item_id": "I079", "variant_name": "Blue", "price": 79.99, "available": True},
+                {"item_id": "I080", "variant_name": "White", "price": 79.99, "available": True},
+            ],
+        },
+        {
+            "product_id": "P026",
+            "name": "Gaming Mouse",
+            "type": "Electronics",
+            "description": (
+                "Ergonomic gaming mouse with 16K DPI optical sensor, "
+                "8 programmable buttons, and customizable RGB lighting."
+            ),
+            "variants": [
+                {"item_id": "I081", "variant_name": "Wired / RGB", "price": 49.99, "available": True},
+                {"item_id": "I082", "variant_name": "Wireless / RGB", "price": 79.99, "available": True},
+                {"item_id": "I083", "variant_name": "Wireless / RGB / Lightweight", "price": 99.99, "available": True},
+            ],
+        },
+        {
+            "product_id": "P027",
+            "name": "Hiking Backpack",
+            "type": "Sporting Goods",
+            "description": (
+                "Durable hiking backpack with hydration sleeve, rain cover, "
+                "multiple compartments, and ergonomic straps."
+            ),
+            "variants": [
+                {"item_id": "I084", "variant_name": "30L / Green", "price": 69.99, "available": True},
+                {"item_id": "I085", "variant_name": "45L / Blue", "price": 89.99, "available": True},
+                {"item_id": "I086", "variant_name": "45L / Waterproof / Black", "price": 109.99, "available": True},
+            ],
+        },
+        {
+            "product_id": "P028",
+            "name": "Bookshelf",
+            "type": "Furniture",
+            "description": (
+                "5-tier bookshelf with industrial metal frame, engineered wood "
+                "shelves, and anti-tip bracket. Each shelf holds 25 lbs."
+            ),
+            "variants": [
+                {"item_id": "I087", "variant_name": "3-Tier / Oak", "price": 59.99, "available": True},
+                {"item_id": "I088", "variant_name": "5-Tier / Black", "price": 89.99, "available": True},
+                {"item_id": "I089", "variant_name": "5-Tier / Walnut", "price": 99.99, "available": True},
+            ],
+        },
     ]
 
 
@@ -772,17 +1003,293 @@ def _seed_retail_orders() -> list[dict[str, Any]]:
             "user_id": "U012",
             "status": "pending",
             "items": [
-                {"item_id": "I004", "product_id": "P002", "name": "Smart Fitness Watch (Black/Small)", "quantity": 1, "unit_price": 199.99},
-                {"item_id": "I019", "product_id": "P006", "name": "Premium Cotton T-Shirt (White / M)", "quantity": 1, "unit_price": 24.99},
+                {"item_id": "I036", "product_id": "P013", "name": "Mechanical Keyboard (Clicky / Blue / RGB)", "quantity": 1, "unit_price": 109.99},
+                {"item_id": "I040", "product_id": "P014", "name": "Smart Thermostat (Apple HomeKit)", "quantity": 1, "unit_price": 179.99},
             ],
             "shipping_address": {
                 "address1": "1450 Ala Moana Blvd", "address2": "Apt 2305",
                 "city": "Honolulu", "state": "HI", "zip": "96814", "country": "USA",
             },
-            "payment": {"method": "credit_card", "last_four": "5566", "amount": 246.98},
+            "payment": {"method": "credit_card", "last_four": "5566", "amount": 289.98},
             "payment_method": {"type": "credit_card", "last_four": "5566", "brand": "Visa"},
             "gift_card_applied": False,
             "created_at": "2026-06-09T20:00:00",
+        },
+        # --- orders with new products for task coverage ---
+        {
+            "order_id": "O016",
+            "user_id": "U004",
+            "status": "delivered",
+            "items": [
+                {"item_id": "I043", "product_id": "P015", "name": "Pro Tablet 11\" (Silver / 128GB / Wi-Fi)", "quantity": 1, "unit_price": 349.99},
+                {"item_id": "I046", "product_id": "P015", "name": "Pro Tablet 11\" (Space Gray / 256GB / Wi-Fi)", "quantity": 1, "unit_price": 429.99},
+            ],
+            "shipping_address": {
+                "address1": "321 Michigan Ave", "address2": "Unit 5",
+                "city": "Chicago", "state": "IL", "zip": "60601", "country": "USA",
+            },
+            "payment": {"method": "credit_card", "last_four": "3456", "amount": 779.98},
+            "payment_method": {"type": "credit_card", "last_four": "3456", "brand": "Visa"},
+            "gift_card_applied": False,
+            "created_at": "2026-06-01T10:00:00",
+            "delivered_at": "2026-06-04T14:00:00",
+        },
+        {
+            "order_id": "O017",
+            "user_id": "U007",
+            "status": "pending",
+            "items": [
+                {"item_id": "I050", "product_id": "P016", "name": "Fleece Jacket (Black / M / Full-Zip)", "quantity": 1, "unit_price": 54.99},
+                {"item_id": "I053", "product_id": "P017", "name": "Pro Skateboard (Maple / 34\")", "quantity": 1, "unit_price": 89.99},
+            ],
+            "shipping_address": {
+                "address1": "1590 Broadway", "address2": "Suite 200",
+                "city": "Denver", "state": "CO", "zip": "80202", "country": "USA",
+            },
+            "payment": {"method": "credit_card", "last_four": "1357", "amount": 144.98},
+            "payment_method": {"type": "credit_card", "last_four": "1357", "brand": "Amex"},
+            "gift_card_applied": False,
+            "created_at": "2026-06-10T11:30:00",
+        },
+        {
+            "order_id": "O018",
+            "user_id": "U003",
+            "status": "delivered",
+            "items": [
+                {"item_id": "I005", "product_id": "P002", "name": "Smart Fitness Watch (Black/Large)", "quantity": 1, "unit_price": 199.99},
+            ],
+            "shipping_address": {
+                "address1": "789 Ocean Dr", "address2": "",
+                "city": "Miami", "state": "FL", "zip": "33101", "country": "USA",
+            },
+            "payment": {"method": "credit_card", "last_four": "9012", "amount": 219.99},
+            "payment_method": {"type": "credit_card", "last_four": "9012", "brand": "Amex"},
+            "gift_card_applied": False,
+            "created_at": "2026-05-10T09:00:00",
+            "delivered_at": "2026-05-17T13:00:00",
+        },
+        {
+            "order_id": "O019",
+            "user_id": "U008",
+            "status": "delivered",
+            "items": [
+                {"item_id": "I035", "product_id": "P013", "name": "Mechanical Keyboard (Clicky / Blue / No RGB)", "quantity": 1, "unit_price": 89.99},
+            ],
+            "shipping_address": {
+                "address1": "2000 Sunset Blvd", "address2": "Apt 12A",
+                "city": "Los Angeles", "state": "CA", "zip": "90028", "country": "USA",
+            },
+            "payment": {"method": "credit_card", "last_four": "8642", "amount": 89.99},
+            "payment_method": {"type": "credit_card", "last_four": "8642", "brand": "Visa"},
+            "gift_card_applied": False,
+            "created_at": "2026-05-20T14:00:00",
+            "delivered_at": "2026-05-26T10:00:00",
+        },
+        {
+            "order_id": "O020",
+            "user_id": "U011",
+            "status": "delivered",
+            "items": [
+                {"item_id": "I047", "product_id": "P016", "name": "Fleece Jacket (Red / M / Full-Zip)", "quantity": 1, "unit_price": 54.99},
+            ],
+            "shipping_address": {
+                "address1": "720 SW Broadway", "address2": "",
+                "city": "Portland", "state": "OR", "zip": "97205", "country": "USA",
+            },
+            "payment": {"method": "credit_card", "last_four": "3344", "amount": 54.99},
+            "payment_method": {"type": "credit_card", "last_four": "3344", "brand": "Mastercard"},
+            "gift_card_applied": False,
+            "created_at": "2026-05-22T16:30:00",
+            "delivered_at": "2026-05-28T11:15:00",
+        },
+        {
+            "order_id": "O021",
+            "user_id": "U009",
+            "status": "pending",
+            "items": [
+                {"item_id": "I061", "product_id": "P020", "name": "Jigsaw Puzzle (500-Piece / Beginner)", "quantity": 1, "unit_price": 19.99},
+                {"item_id": "I062", "product_id": "P020", "name": "Jigsaw Puzzle (1000-Piece / Intermediate)", "quantity": 1, "unit_price": 24.99},
+            ],
+            "shipping_address": {
+                "address1": "4100 Westheimer Rd", "address2": "",
+                "city": "Houston", "state": "TX", "zip": "77027", "country": "USA",
+            },
+            "payment": {"method": "credit_card", "last_four": "9753", "amount": 44.98},
+            "payment_method": {"type": "credit_card", "last_four": "9753", "brand": "Mastercard"},
+            "gift_card_applied": False,
+            "created_at": "2026-06-11T08:00:00",
+        },
+        {
+            "order_id": "O022",
+            "user_id": "U009",
+            "status": "pending",
+            "items": [
+                {"item_id": "I078", "product_id": "P025", "name": "Wireless Earbuds (Black)", "quantity": 1, "unit_price": 79.99},
+            ],
+            "shipping_address": {
+                "address1": "4100 Westheimer Rd", "address2": "",
+                "city": "Houston", "state": "TX", "zip": "77027", "country": "USA",
+            },
+            "payment": {"method": "credit_card", "last_four": "9753", "amount": 79.99},
+            "payment_method": {"type": "credit_card", "last_four": "9753", "brand": "Mastercard"},
+            "gift_card_applied": False,
+            "created_at": "2026-06-10T10:30:00",
+        },
+        {
+            "order_id": "O023",
+            "user_id": "U008",
+            "status": "delivered",
+            "items": [
+                {"item_id": "I044", "product_id": "P015", "name": "Pro Tablet 11\" (Silver / 256GB / Wi-Fi)", "quantity": 1, "unit_price": 429.99},
+            ],
+            "shipping_address": {
+                "address1": "2000 Sunset Blvd", "address2": "Apt 12A",
+                "city": "Los Angeles", "state": "CA", "zip": "90028", "country": "USA",
+            },
+            "payment": {"method": "paypal", "amount": 429.99},
+            "payment_method": {"type": "paypal", "last_four": "N/A", "brand": "PayPal"},
+            "gift_card_applied": False,
+            "created_at": "2026-06-02T09:15:00",
+            "delivered_at": "2026-06-05T16:00:00",
+        },
+        {
+            "order_id": "O024",
+            "user_id": "U002",
+            "status": "delivered",
+            "items": [
+                {"item_id": "I075", "product_id": "P024", "name": "E-Reader (8GB / Wi-Fi / with Ads)", "quantity": 1, "unit_price": 99.99},
+                {"item_id": "I043", "product_id": "P015", "name": "Pro Tablet 11\" (Silver / 128GB / Wi-Fi)", "quantity": 1, "unit_price": 349.99},
+            ],
+            "shipping_address": {
+                "address1": "456 Park Ave", "address2": "",
+                "city": "New York", "state": "NY", "zip": "10001", "country": "USA",
+            },
+            "payment": {"method": "credit_card", "last_four": "5678", "amount": 449.98},
+            "payment_method": {"type": "credit_card", "last_four": "5678", "brand": "Mastercard"},
+            "gift_card_applied": False,
+            "created_at": "2026-05-08T13:30:00",
+            "delivered_at": "2026-05-15T10:00:00",
+        },
+        {
+            "order_id": "O025",
+            "user_id": "U014",
+            "status": "pending",
+            "items": [
+                {"item_id": "I059", "product_id": "P019", "name": "Air Purifier (Plus / 500 sq ft)", "quantity": 1, "unit_price": 149.99},
+            ],
+            "shipping_address": {
+                "address1": "300 Reunion Blvd", "address2": "Suite 800",
+                "city": "Dallas", "state": "TX", "zip": "75207", "country": "USA",
+            },
+            "payment": {"method": "credit_card", "last_four": "2233", "amount": 149.99},
+            "payment_method": {"type": "credit_card", "last_four": "2233", "brand": "Mastercard"},
+            "gift_card_applied": False,
+            "created_at": "2026-06-08T15:45:00",
+        },
+        {
+            "order_id": "O026",
+            "user_id": "U012",
+            "status": "delivered",
+            "items": [
+                {"item_id": "I059", "product_id": "P019", "name": "Air Purifier (Plus / 500 sq ft)", "quantity": 1, "unit_price": 149.99},
+                {"item_id": "I026", "product_id": "P009", "name": "Cordless Stick Vacuum (Standard)", "quantity": 1, "unit_price": 249.99},
+            ],
+            "shipping_address": {
+                "address1": "1450 Ala Moana Blvd", "address2": "Apt 2305",
+                "city": "Honolulu", "state": "HI", "zip": "96814", "country": "USA",
+            },
+            "payment": {"method": "credit_card", "last_four": "5566", "amount": 399.98},
+            "payment_method": {"type": "credit_card", "last_four": "5566", "brand": "Visa"},
+            "gift_card_applied": False,
+            "created_at": "2026-05-15T10:00:00",
+            "delivered_at": "2026-05-22T15:30:00",
+        },
+        {
+            "order_id": "O027",
+            "user_id": "U004",
+            "status": "delivered",
+            "items": [
+                {"item_id": "I056", "product_id": "P018", "name": "Action Camera (5K / Waterproof / Pro)", "quantity": 1, "unit_price": 349.99},
+            ],
+            "shipping_address": {
+                "address1": "321 Michigan Ave", "address2": "Unit 5",
+                "city": "Chicago", "state": "IL", "zip": "60601", "country": "USA",
+            },
+            "payment": {"method": "credit_card", "last_four": "3456", "amount": 349.99},
+            "payment_method": {"type": "credit_card", "last_four": "3456", "brand": "Visa"},
+            "gift_card_applied": False,
+            "created_at": "2026-05-12T09:30:00",
+            "delivered_at": "2026-05-19T12:00:00",
+        },
+        {
+            "order_id": "O028",
+            "user_id": "U013",
+            "status": "delivered",
+            "items": [
+                {"item_id": "I087", "product_id": "P028", "name": "Bookshelf (3-Tier / Oak)", "quantity": 1, "unit_price": 59.99},
+                {"item_id": "I062", "product_id": "P020", "name": "Jigsaw Puzzle (1000-Piece / Intermediate)", "quantity": 1, "unit_price": 24.99},
+                {"item_id": "I084", "product_id": "P027", "name": "Hiking Backpack (30L / Green)", "quantity": 1, "unit_price": 69.99},
+            ],
+            "shipping_address": {
+                "address1": "1200 Peachtree St", "address2": "",
+                "city": "Atlanta", "state": "GA", "zip": "30309", "country": "USA",
+            },
+            "payment": {"method": "credit_card", "last_four": "9900", "amount": 154.97},
+            "payment_method": {"type": "credit_card", "last_four": "9900", "brand": "Visa"},
+            "gift_card_applied": False,
+            "created_at": "2026-05-18T14:00:00",
+            "delivered_at": "2026-05-25T11:30:00",
+        },
+        {
+            "order_id": "O029",
+            "user_id": "U015",
+            "status": "delivered",
+            "items": [
+                {"item_id": "I064", "product_id": "P021", "name": "Cycling Helmet (Red / M / Standard)", "quantity": 1, "unit_price": 69.99},
+            ],
+            "shipping_address": {
+                "address1": "111 Alamo Plaza", "address2": "",
+                "city": "San Antonio", "state": "TX", "zip": "78205", "country": "USA",
+            },
+            "payment": {"method": "credit_card", "last_four": "4455", "amount": 69.99},
+            "payment_method": {"type": "credit_card", "last_four": "4455", "brand": "Amex"},
+            "gift_card_applied": False,
+            "created_at": "2026-05-25T08:30:00",
+            "delivered_at": "2026-06-01T14:00:00",
+        },
+        {
+            "order_id": "O030",
+            "user_id": "U015",
+            "status": "pending",
+            "items": [
+                {"item_id": "I069", "product_id": "P022", "name": "Luggage Set (2-Piece / Black / Soft)", "quantity": 1, "unit_price": 179.99},
+                {"item_id": "I073", "product_id": "P023", "name": "Outdoor Grill (4-Burner / Propane)", "quantity": 1, "unit_price": 399.99},
+            ],
+            "shipping_address": {
+                "address1": "111 Alamo Plaza", "address2": "",
+                "city": "San Antonio", "state": "TX", "zip": "78205", "country": "USA",
+            },
+            "payment": {"method": "paypal", "amount": 579.98},
+            "payment_method": {"type": "paypal", "last_four": "N/A", "brand": "PayPal"},
+            "gift_card_applied": False,
+            "created_at": "2026-06-10T09:00:00",
+        },
+        {
+            "order_id": "O031",
+            "user_id": "U011",
+            "status": "pending",
+            "items": [
+                {"item_id": "I082", "product_id": "P026", "name": "Gaming Mouse (Wireless / RGB)", "quantity": 1, "unit_price": 79.99},
+                {"item_id": "I037", "product_id": "P013", "name": "Mechanical Keyboard (Linear / Red / RGB)", "quantity": 1, "unit_price": 109.99},
+            ],
+            "shipping_address": {
+                "address1": "720 SW Broadway", "address2": "",
+                "city": "Portland", "state": "OR", "zip": "97205", "country": "USA",
+            },
+            "payment": {"method": "credit_card", "last_four": "3344", "amount": 189.98},
+            "payment_method": {"type": "credit_card", "last_four": "3344", "brand": "Mastercard"},
+            "gift_card_applied": False,
+            "created_at": "2026-06-12T13:00:00",
         },
     ]
 
@@ -796,6 +1303,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "loyalty_tier": "gold", "loyalty_points": 45200,
             "known_traveler_number": "KTN123456", "passport": "US-A1234567",
             "gift_card_balance": 50.0,
+            "certificate_balance": 200.0,
         },
         {
             "user_id": "UA002", "name": "Bob Williams", "first_name": "Bob", "last_name": "Williams",
@@ -804,6 +1312,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "loyalty_tier": "silver", "loyalty_points": 18500,
             "known_traveler_number": "KTN789012", "passport": "US-B2345678",
             "gift_card_balance": 0.0,
+            "certificate_balance": 0.0,
         },
         {
             "user_id": "UA003", "name": "Carlos Rodriguez", "first_name": "Carlos", "last_name": "Rodriguez",
@@ -812,6 +1321,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "loyalty_tier": "platinum", "loyalty_points": 89300,
             "known_traveler_number": "KTN345678", "passport": "US-C3456789",
             "gift_card_balance": 120.0,
+            "certificate_balance": 350.0,
         },
         {
             "user_id": "UA004", "name": "Diana Park", "first_name": "Diana", "last_name": "Park",
@@ -820,6 +1330,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "loyalty_tier": "basic", "loyalty_points": 3200,
             "passport": "US-D4567890",
             "gift_card_balance": 0.0,
+            "certificate_balance": 0.0,
         },
         {
             "user_id": "UA005", "name": "Edward Kim", "first_name": "Edward", "last_name": "Kim",
@@ -828,6 +1339,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "loyalty_tier": "gold", "loyalty_points": 52100,
             "known_traveler_number": "KTN901234", "passport": "US-E5678901",
             "gift_card_balance": 75.0,
+            "certificate_balance": 100.0,
         },
         {
             "user_id": "UA006", "name": "Fatima Hassan", "first_name": "Fatima", "last_name": "Hassan",
@@ -836,6 +1348,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "loyalty_tier": "basic", "loyalty_points": 8900,
             "passport": "US-F6789012",
             "gift_card_balance": 0.0,
+            "certificate_balance": 0.0,
         },
         {
             "user_id": "UA007", "name": "George Thompson", "first_name": "George", "last_name": "Thompson",
@@ -844,6 +1357,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "loyalty_tier": "silver", "loyalty_points": 22400,
             "known_traveler_number": "KTN567890", "passport": "US-G7890123",
             "gift_card_balance": 150.0,
+            "certificate_balance": 50.0,
         },
         {
             "user_id": "UA008", "name": "Hannah Lee", "first_name": "Hannah", "last_name": "Lee",
@@ -852,6 +1366,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "loyalty_tier": "platinum", "loyalty_points": 97800,
             "known_traveler_number": "KTN112233", "passport": "US-H8901234",
             "gift_card_balance": 0.0,
+            "certificate_balance": 500.0,
         },
         {
             "user_id": "UA009", "name": "Ivan Petrov", "first_name": "Ivan", "last_name": "Petrov",
@@ -860,6 +1375,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "loyalty_tier": "basic", "loyalty_points": 1200,
             "passport": "US-I9012345",
             "gift_card_balance": 25.0,
+            "certificate_balance": 0.0,
         },
         {
             "user_id": "UA010", "name": "Julia Martinez", "first_name": "Julia", "last_name": "Martinez",
@@ -868,6 +1384,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "loyalty_tier": "silver", "loyalty_points": 19800,
             "known_traveler_number": "KTN445566", "passport": "US-J0123456",
             "gift_card_balance": 0.0,
+            "certificate_balance": 0.0,
         },
         {
             "user_id": "UA011", "name": "Kevin O'Brien", "first_name": "Kevin", "last_name": "O'Brien",
@@ -876,6 +1393,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "loyalty_tier": "basic", "loyalty_points": 5600,
             "passport": "US-K1234567",
             "gift_card_balance": 100.0,
+            "certificate_balance": 0.0,
         },
         {
             "user_id": "UA012", "name": "Lisa Nakamura", "first_name": "Lisa", "last_name": "Nakamura",
@@ -884,6 +1402,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "loyalty_tier": "gold", "loyalty_points": 63400,
             "known_traveler_number": "KTN778899", "passport": "US-L2345678",
             "gift_card_balance": 0.0,
+            "certificate_balance": 150.0,
         },
         {
             "user_id": "UA013", "name": "Michael Brown", "first_name": "Michael", "last_name": "Brown",
@@ -892,6 +1411,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "loyalty_tier": "basic", "loyalty_points": 4100,
             "passport": "US-M3456789",
             "gift_card_balance": 60.0,
+            "certificate_balance": 0.0,
         },
         {
             "user_id": "UA014", "name": "Nancy Davis", "first_name": "Nancy", "last_name": "Davis",
@@ -900,6 +1420,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "loyalty_tier": "silver", "loyalty_points": 27100,
             "known_traveler_number": "KTN990011", "passport": "US-N4567890",
             "gift_card_balance": 0.0,
+            "certificate_balance": 0.0,
         },
         {
             "user_id": "UA015", "name": "Oscar Garcia", "first_name": "Oscar", "last_name": "Garcia",
@@ -908,6 +1429,7 @@ def _seed_airline_users() -> list[dict[str, Any]]:
             "loyalty_tier": "gold", "loyalty_points": 56700,
             "known_traveler_number": "KTN223344", "passport": "US-O5678901",
             "gift_card_balance": 200.0,
+            "certificate_balance": 300.0,
         },
     ]
 

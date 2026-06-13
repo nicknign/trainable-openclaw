@@ -26,15 +26,23 @@ def _load_config() -> dict:
         return json.load(f)
 
 
-def _connect(cfg: dict):
-    import paramiko
+def _connect(cfg: dict, timeout: int = 60):
+    import paramiko, time
     c = paramiko.SSHClient()
     c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    c.connect(
-        cfg["host"], port=cfg["port"], username=cfg["username"],
-        password=cfg["password"], timeout=15,
-    )
-    return c
+    last_err = None
+    for attempt in range(3):
+        try:
+            c.connect(
+                cfg["host"], port=cfg["port"], username=cfg["username"],
+                password=cfg["password"], timeout=timeout,
+            )
+            return c
+        except Exception as e:
+            last_err = e
+            if attempt < 2:
+                time.sleep(5)
+    raise last_err
 
 
 def _remote_path(cfg: dict, rel: str) -> str:
@@ -45,13 +53,21 @@ def cmd_exec(command: str):
     """Execute a command on remote and print output."""
     cfg = _load_config()
     c = _connect(cfg)
-    stdin, stdout, stderr = c.exec_command(command, timeout=120)
-    out = stdout.read().decode()
-    err = stderr.read().decode()
+    # Set channel timeout to avoid PipeTimeout on long-running commands
+    transport = c.get_transport()
+    if transport:
+        transport.set_keepalive(30)
+    stdin, stdout, stderr = c.exec_command(command, timeout=600)
+    out = stdout.read().decode("utf-8", errors="replace")
+    err = stderr.read().decode("utf-8", errors="replace")
     if out:
-        print(out.encode("utf-8", errors="replace").decode("utf-8", errors="replace"))
+        # Write raw UTF-8 bytes to avoid Windows GBK codec errors from
+        # emoji / wide characters in remote output.
+        sys.stdout.buffer.write(out.encode("utf-8") + b"\n")
+        sys.stdout.buffer.flush()
     if err.strip():
-        print(f"[stderr] {err[:500]}")
+        sys.stdout.buffer.write(f"[stderr] {err[:500]}\n".encode("utf-8"))
+        sys.stdout.buffer.flush()
     c.close()
 
 
@@ -90,13 +106,17 @@ def cmd_sync(dry_run: bool = False, full: bool = False):
         ("data/tau_bench/val_prompts_augmented.jsonl", "data/tau_bench/val_prompts_augmented.jsonl"),
         ("scripts/eval/run_single_eval.py", "scripts/eval/run_single_eval.py"),
         ("scripts/eval/run_full_eval.py", "scripts/eval/run_full_eval.py"),
+        ("scripts/deploy/start_experience.sh", "scripts/deploy/start_experience.sh"),
         ("ai_scripts/remote_check_env.py", "ai_scripts/remote_check_env.py"),
         ("ai_scripts/remote_eval_one.py", "ai_scripts/remote_eval_one.py"),
+        ("ai_scripts/run_nanobot_eval.py", "ai_scripts/run_nanobot_eval.py"),
     ]
 
     if full:
         sync_items.extend([
             ("trainable_openclaw", "trainable_openclaw"),
+            ("scripts", "scripts"),
+            ("ai_scripts", "ai_scripts"),
             ("pyproject.toml", "pyproject.toml"),
         ])
 

@@ -1,0 +1,67 @@
+{
+  "scoring": {
+    "total_tasks": 37,
+    "completed": 10,
+    "completion_rate": 0.2703,
+    "avg_satisfaction": 0.3081,
+    "first_try_rate": 0.1622,
+    "reliability": 1.0,
+    "persistence": 0.7297,
+    "overall_score": 0.3897,
+    "by_domain": {
+      "retail": {
+        "count": 37,
+        "completed": 10,
+        "completion_rate": 0.2703,
+        "avg_satisfaction": 0.3081,
+        "first_try_rate": 0.1622
+      }
+    }
+  },
+  "config": {
+    "max_rounds": 7,
+    "max_tasks": 37,
+    "concurrency": 4,
+    "early_stop": true,
+    "http_timeout": 300
+  },
+  "tasks": {
+    "task_0_retail_task_40": {"completed": true, "rounds": 1, "satisfaction": 1.0, "status": "complete", "domain": "retail"},
+    "task_4_retail_task_82": {"completed": true, "rounds": 3, "satisfaction": 1.0, "status": "complete", "domain": "retail"},
+    "task_1_retail_task_76": {"completed": true, "rounds": 7, "satisfaction": 1.0, "status": "complete", "domain": "retail"},
+    "task_2_retail_task_89": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_3_retail_task_80": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_5_retail_task_16": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_9_retail_task_55": {"completed": true, "rounds": 3, "satisfaction": 1.0, "status": "complete", "domain": "retail"},
+    "task_6_retail_task_85": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_8_retail_task_103": {"completed": false, "rounds": 5, "satisfaction": 0.2, "status": "give_up", "domain": "retail"},
+    "task_7_retail_task_0": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_11_retail_task_12": {"completed": false, "rounds": 4, "satisfaction": 0.2, "status": "give_up", "domain": "retail"},
+    "task_10_retail_task_64": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_12_retail_task_48": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_13_retail_task_41": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_14_retail_task_61": {"completed": false, "rounds": 7, "satisfaction": 0.2, "status": "give_up", "domain": "retail"},
+    "task_17_retail_task_108": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_19_retail_task_113": {"completed": true, "rounds": 1, "satisfaction": 1.0, "status": "complete", "domain": "retail"},
+    "task_16_retail_task_56": {"completed": false, "rounds": 7, "satisfaction": 0.1, "status": "give_up", "domain": "retail"},
+    "task_15_retail_task_23": {"completed": false, "rounds": 6, "satisfaction": 0.1, "status": "give_up", "domain": "retail"},
+    "task_20_retail_task_1": {"completed": true, "rounds": 4, "satisfaction": 0.9, "status": "complete", "domain": "retail"},
+    "task_21_retail_task_35": {"completed": false, "rounds": 3, "satisfaction": 0.2, "status": "give_up", "domain": "retail"},
+    "task_23_retail_task_40": {"completed": true, "rounds": 1, "satisfaction": 1.0, "status": "complete", "domain": "retail"},
+    "task_22_retail_task_36": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_18_retail_task_30": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_24_retail_task_76": {"completed": false, "rounds": 4, "satisfaction": 0.1, "status": "give_up", "domain": "retail"},
+    "task_26_retail_task_80": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_25_retail_task_89": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_28_retail_task_16": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_27_retail_task_82": {"completed": false, "rounds": 7, "satisfaction": 0.2, "status": "give_up", "domain": "retail"},
+    "task_29_retail_task_85": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_30_retail_task_0": {"completed": true, "rounds": 7, "satisfaction": 1.0, "status": "complete", "domain": "retail"},
+    "task_32_retail_task_55": {"completed": true, "rounds": 3, "satisfaction": 1.0, "status": "complete", "domain": "retail"},
+    "task_31_retail_task_103": {"completed": false, "rounds": 6, "satisfaction": 0.2, "status": "give_up", "domain": "retail"},
+    "task_35_retail_task_48": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_34_retail_task_12": {"completed": true, "rounds": 7, "satisfaction": 0.8, "status": "complete", "domain": "retail"},
+    "task_33_retail_task_64": {"completed": false, "rounds": 7, "satisfaction": 0.0, "status": "timeout", "domain": "retail"},
+    "task_36_retail_task_41": {"completed": false, "rounds": 6, "satisfaction": 0.2, "status": "give_up", "domain": "retail"}
+  }
+}

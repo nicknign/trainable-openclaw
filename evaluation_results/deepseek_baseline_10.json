@@ -1,0 +1,107 @@
+{
+  "scoring": {
+    "total_tasks": 10,
+    "completed": 2,
+    "completion_rate": 0.2,
+    "avg_satisfaction": 0.24,
+    "first_try_rate": 0.2,
+    "reliability": 1.0,
+    "persistence": 0.8,
+    "overall_score": 0.352,
+    "by_domain": {
+      "airline": {
+        "count": 2,
+        "completed": 0,
+        "completion_rate": 0.0,
+        "avg_satisfaction": 0.1,
+        "first_try_rate": 0.0
+      },
+      "retail": {
+        "count": 8,
+        "completed": 2,
+        "completion_rate": 0.25,
+        "avg_satisfaction": 0.275,
+        "first_try_rate": 0.25
+      }
+    }
+  },
+  "config": {
+    "max_rounds": 7,
+    "max_tasks": 10,
+    "concurrency": 2,
+    "early_stop": true,
+    "http_timeout": 300
+  },
+  "tasks": {
+    "task_0_retail_task_40": {
+      "completed": true,
+      "rounds": 1,
+      "satisfaction": 1.0,
+      "status": "complete",
+      "domain": "retail"
+    },
+    "task_1_airline_task_23": {
+      "completed": false,
+      "rounds": 7,
+      "satisfaction": 0.0,
+      "status": "timeout",
+      "domain": "airline"
+    },
+    "task_2_retail_task_76": {
+      "completed": false,
+      "rounds": 7,
+      "satisfaction": 0.0,
+      "status": "timeout",
+      "domain": "retail"
+    },
+    "task_3_retail_task_89": {
+      "completed": false,
+      "rounds": 7,
+      "satisfaction": 0.0,
+      "status": "timeout",
+      "domain": "retail"
+    },
+    "task_4_retail_task_80": {
+      "completed": false,
+      "rounds": 7,
+      "satisfaction": 0.2,
+      "status": "give_up",
+      "domain": "retail"
+    },
+    "task_5_retail_task_82": {
+      "completed": false,
+      "rounds": 7,
+      "satisfaction": 0.0,
+      "status": "timeout",
+      "domain": "retail"
+    },
+    "task_6_retail_task_16": {
+      "completed": false,
+      "rounds": 7,
+      "satisfaction": 0.0,
+      "status": "timeout",
+      "domain": "retail"
+    },
+    "task_8_retail_task_0": {
+      "completed": true,
+      "rounds": 3,
+      "satisfaction": 1.0,
+      "status": "complete",
+      "domain": "retail"
+    },
+    "task_7_retail_task_85": {
+      "completed": false,
+      "rounds": 7,
+      "satisfaction": 0.0,
+      "status": "timeout",
+      "domain": "retail"
+    },
+    "task_9_airline_task_5": {
+      "completed": false,
+      "rounds": 5,
+      "satisfaction": 0.2,
+      "status": "give_up",
+      "domain": "airline"
+    }
+  }
+}
