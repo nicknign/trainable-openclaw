@@ -55,6 +55,12 @@ Before writing any code:
 - Remove only orphans YOUR changes created.
 - Every changed line must trace to the user's request.
 
+**IMPORTANT — File placement rules:**
+- Temporary/experimental/debug scripts → `ai_scripts/` (NOT `scripts/`, NOT `trainable_openclaw/`)
+- `scripts/` is for permanent project scripts only
+- `trainable_openclaw/` is for library code only
+- If a script in `ai_scripts/` proves valuable long-term, ask before migrating to `scripts/`
+
 ### 4. Goal-Driven Execution
 
 **Define success criteria. Loop until verified.**

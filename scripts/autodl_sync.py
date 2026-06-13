@@ -90,8 +90,8 @@ def cmd_sync(dry_run: bool = False, full: bool = False):
         ("data/tau_bench/val_prompts_augmented.jsonl", "data/tau_bench/val_prompts_augmented.jsonl"),
         ("scripts/run_single_eval.py", "scripts/run_single_eval.py"),
         ("scripts/run_full_eval.py", "scripts/run_full_eval.py"),
-        ("scripts/remote_check_env.py", "scripts/remote_check_env.py"),
-        ("scripts/remote_eval_one.py", "scripts/remote_eval_one.py"),
+        ("ai_scripts/remote_check_env.py", "ai_scripts/remote_check_env.py"),
+        ("ai_scripts/remote_eval_one.py", "ai_scripts/remote_eval_one.py"),
     ]
 
     if full:

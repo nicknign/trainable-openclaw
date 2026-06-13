@@ -242,6 +242,19 @@ python .claude/agent_message.py list-agents
 远程 Linux GPU 机器 (AutoDL, RTX 4090 48GB)，SSH 连接。
 同步工具: `scripts/autodl_sync.py`，详见 `.vscode/sftp.json` 以及 memory `remote_env.md`。
 
+## 目录规范
+
+| 目录 | 用途 | 写入者 |
+|------|------|--------|
+| `scripts/` | 项目正式脚本，长期维护 | 人工审查后 |
+| `ai_scripts/` | Agent 生成的临时/调试脚本 | 所有 agent |
+| `trainable_openclaw/` | Python 库代码 | 人工审查后 |
+| `plans/` | 实施计划文档 | 主 agent |
+| `data/` | 数据集 | 数据处理 pipeline |
+| `tests/` | 测试代码 | disciplined-coder |
+
+**所有 agent 必须遵守：临时脚本一律写入 `ai_scripts/`，禁止污染 `scripts/` 和源码目录。**
+
 ## 其他参考
 
 | 文档 | 说明 |
