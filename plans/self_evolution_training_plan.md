@@ -8,7 +8,7 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Phase 0: 准备 (本机 ✓ / GPU 待)               │
 │                                                                 │
-│  ✓数据分析 → ✓DeepSeek生成rubric → ✓代码+测试 → ⬜Baseline重测  │
+│  ✓数据分析 → ✓Split隔离 → ✓Rubric生成 → ✓代码+测试 → ⬜Baseline│
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
@@ -16,41 +16,48 @@
 │                  Phase 1-N: 训练循环 (Linux GPU)                 │
 │                                                                 │
 │  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌─────────────┐ │
-│  │ GRPO训练  │ → │ 标准评测  │ → │ 失败分析  │ → │ Rubric进化  │ │
-│  │ (verl)   │   │ (37条)   │   │ (DeepSeek)│   │ (+3-5条)   │ │
+│  │ GRPO训练  │ → │ Val评测   │ → │ 失败分析  │ → │ Rubric进化  │ │
+│  │ (66任务)  │   │ (18任务)  │   │ (DeepSeek)│   │ (+3-5条)   │ │
 │  └──────────┘   └──────────┘   └──────────┘   └──────┬──────┘ │
 │       ↑                                               │        │
 │       └───────────────────────────────────────────────┘        │
 │                                                                 │
+│  Test 23 任务只在最终评测触碰一次                                 │
 │  Target: baseline(待测) → R1(~0.25) → R2(~0.30) → R3(~0.35+)  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Phase 0: 训练前准备 (本机，不需要 GPU)
 
-### 0.1 数据 Split 分析 (已完成 ✓)
+### 0.1 数据 Split 分析与隔离 (已完成 ✓)
 
-| | Train | Val | Test |
+**原始数据:**
+
+| | 原 Train | 原 Val | Test |
 |---|---|---|---|
 | 条目 | 320 | 28 | 37 |
 | 唯一任务 | **84** | **7** | **23** |
-| 每条增强数 | 3-4 变体 | 4 变体 | 1-2 变体 |
-| 断言数均值 | 1.9 | 1.9 | 1.8 |
 
-**重叠度: 零。** Train ∩ Val = Train ∩ Test = Val ∩ Test = ∅
+**重叠度: 零。** Train ∩ Test = ∅
 
-增强质量: 84 个任务全部有变体，改动用户身份(姓名/邮箱/邮编)，断言随变体变化 → 模型必须学流程，无法死记硬背。
+**原 Val 问题:** 28 条仅 7 个任务，43% 是 return 类 — 太小太偏，不适合做 checkpoint 选择。
 
-任务类型分布:
+**新 Split 方案 — 三层隔离:**
+
 ```
-Train: exchange+modify(27%), modify(17%), return(12%), cancel+return+modify(9%), ...
-Test:  exchange+modify(27%), cancel+return(16%), modify(14%), return(14%), ...
+原 Train 84 任务 (320条)
+  ├─→ Train 66 任务 (251条) ──→ GRPO 训练 + Rubric 校准
+  └─→ Val   18 任务 ( 69条) ──→ Checkpoint 选择
+
+Test 23 任务 (37条) ──→ 只碰一次，最终报告
 ```
 
-**结论与决策:**
-- Val (28条, 7任务, 43% return) 太小且偏斜 → **跳过 Val，checkpoint 评估直接抽 15 条 Test**
-- Test 剩余 22 条保留做最终评估 → **训练过程不看，避免过拟合**
-- 84 训练任务 × 3.8 变体对 4B 模型基本够用但不充裕
+**Val 拆分策略:** 分层抽样，保证 12 种任务类型全部在 Val 中有代表（每种至少 1 个任务）。
+
+**核心原则:**
+- Rubric 校准用**训练轨迹**（rubric 是规则不是可学习参数，看训练集不泄漏）
+- Checkpoint 选择用 **Val**（从未参与训练）
+- Test **仅在最终评测触碰一次**（不用于校准、不用于选 checkpoint）
 
 ### 0.2 重新建立 Baseline (需要 GPU)
 
@@ -72,14 +79,19 @@ Test:  exchange+modify(27%), cancel+return(16%), modify(14%), return(14%), ...
 
 ### 0.4 Rubric 在真实轨迹上验证 (待 GPU)
 
-需要等 baseline 评测产出真实轨迹数据后执行:
+**在训练集轨迹上验证**（不碰 Test）:
 ```
-在真实 Qwen3.5-4B 轨迹上:
+Baseline 评测 66 个训练任务 → 收集真实 Qwen3.5-4B 轨迹
   - 完成轨迹 → 期望得分 > 0.6
   - 失败轨迹 → 期望得分 < 0.4
   - 区分度: p < 0.05 (Mann-Whitney U)
   - 与 satisfaction 相关性: Pearson r > 0.5
+
+不通过 → 调整 rubric → 重新在训练轨迹上验证
+通过 → 进入 Phase 1 训练
 ```
+
+Rubric 是确定性规则不是可学习参数，在训练集上调优不构成数据泄漏。
 
 ---
 
@@ -104,15 +116,15 @@ curl http://localhost:8000/health    # vllm
 | 参数 | 值 | 说明 |
 |------|-----|------|
 | 基座模型 | Qwen3.5-4B | |
-| 适配器 | LoRA rank=16, alpha=32 | |
-| 训练 prompt | 84 条零售 | train_prompts_augmented.jsonl |
+| 适配器 | LoRA rank=64, alpha=128 | 多轮工具调用需要更大容量 |
+| 训练 prompt | 66 任务 (~251 条) | train/val split 后的训练部分 |
 | Rollout 数 | n=4 / prompt | 组内归一化 |
 | Batch size | 8 prompts | 每步 8×4=32 条 rollout |
-| 学习率 | 2e-6 | IRC 论文推荐 |
+| 学习率 | 2e-5 | LoRA 常规范围 5e-6~5e-5，取中间偏稳 |
 | KL 系数 | 0.05 | |
 | 温度 | 0.9 | 鼓励探索 |
 | Max turns | 10 | 超过给 time penalty |
-| Max steps | 200 | 约 5-6 epochs |
+| Max steps | 200 | 约 6-7 epochs |
 | Save checkpoint | 每 50 steps | |
 | GPU | 单卡 RTX 4090 48GB | |
 
@@ -148,25 +160,27 @@ step, reward_mean, reward_std, kl_div, completion_rate, avg_turns
 
 ### 1.5 检查点评估
 
-每 50 步用测试集前 15 条快速评测（跳过 Val — 太小且偏斜）:
+每 50 步用 Val 集 (18 任务, ~69 条) 快速评测:
 ```
-python ai_scripts/batch_eval_runner.py --max-tasks 15 --domain retail --output /tmp/r1_step50.json
+python ai_scripts/batch_eval_runner.py --max-tasks 18 --domain retail --val-split --output /tmp/r1_step50.json
 ```
 
-剩余 22 条保留到 Phase 2 最终评测，训练过程不接触，避免过拟合。
+Val 任务从未参与训练，completion rate 反映真实泛化能力。
+**Test 集此时不碰。**
 
 ---
 
 ## Phase 2: R1 评测 + 失败分析
 
-### 2.1 标准评测
+### 2.1 标准评测 — Test 首次触碰
 
 ```
-全量 37 条零售测试集评测 (含训练期未接触的 22 条):
+全量 Test 23 任务 (37 条) — 训练全程首次触碰:
   → 对比 baseline
     → completion_rate, satisfaction, first_try_rate
       → 与 deepseek_upper_bound (0.390) 的差距
-  → 单独报告 checkpoint-15 和 heldout-22 的分数，检测过拟合
+  → 同时报告 Val 分数做对照（Val 用于 checkpoint 选择，可能略高）
+  → 如果 Test ≪ Val → 过拟合，停止迭代，检查原因
 ```
 
 ### 2.2 失败分析 (DeepSeek)

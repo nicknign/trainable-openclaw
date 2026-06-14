@@ -1,5 +1,6 @@
 # GRPO training: Qwen3.5-4B on tau-bench retail
-# 84 training prompts, single RTX 4090 48GB, LoRA rank=16
+# Train: 66 tasks (~251 entries), Val: 18 tasks (~69 entries), Test: 23 tasks (held out)
+# Single RTX 4090 48GB, LoRA rank=64
 # Usage: python -m verl.trainer.main_ppo --config-path scripts/train --config-name grpo_retail
 
 defaults:
@@ -7,8 +8,8 @@ defaults:
   - _self_
 
 data:
-  train_files: data/tau_bench/train_prompts_augmented.jsonl
-  val_files: data/tau_bench/val_prompts_augmented.jsonl
+  train_files: data/tau_bench/train_split_66.jsonl
+  val_files: data/tau_bench/val_split_18.jsonl
   max_prompt_length: 2048
   max_response_length: 4096
   train_batch_size: 4
@@ -20,8 +21,8 @@ actor_rollout_ref:
     enable_gradient_checkpointing: true
   model_peft:
     peft_type: lora
-    lora_rank: 16
-    lora_alpha: 32
+    lora_rank: 64
+    lora_alpha: 128
     target_modules: all-linear
   rollout:
     name: vllm
@@ -37,7 +38,7 @@ actor_rollout_ref:
     ppo_mini_batch_size: 4
     ppo_epochs: 1
     optim:
-      lr: 2.0e-6
+      lr: 2.0e-5
     clip_ratio: 0.2
     entropy_coeff: 0.01
     kl_loss_coef: 0.05
