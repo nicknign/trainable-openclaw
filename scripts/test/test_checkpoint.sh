@@ -60,7 +60,7 @@ nohup /data/anaconda3/bin/python -m verl.trainer.serve_ppo \
     +trainer.trajectory.enabled=true \
     +trainer.trajectory.data_path=data/phase3_datasets/train_prompts.jsonl \
     +trainer.trajectory.rubrics_path=data/rubrics_dynamic.json \
-    +trainer.trajectory.api_key=sk-906ad0dc48354e7aba594ef6d9aa5be6 \
+    +trainer.trajectory.api_key="${DEEPSEEK_API_KEY:?}" \
     +trainer.trajectory.max_rubrics=2 \
     +trainer.trajectory.reward_mode=mean \
     +trainer.save_ckpt_interval=1 \

@@ -8,7 +8,7 @@ export LD_LIBRARY_PATH=/data/anaconda3/lib:$LD_LIBRARY_PATH
 
 INPUT_FILES="${@:-data/trajectories_500.jsonl data/trajectories_high_error.jsonl}"
 OUTPUT="${OUTPUT:-data/rubrics_dynamic.json}"
-API_KEY="${DEEPSEEK_API_KEY:-sk-906ad0dc48354e7aba594ef6d9aa5be6}"
+API_KEY="${DEEPSEEK_API_KEY:?}"
 MODEL="${MODEL:-deepseek-v4-flash}"
 MAX_RUBRICS="${MAX_RUBRICS:-8}"
 

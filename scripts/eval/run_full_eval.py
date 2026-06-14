@@ -25,7 +25,7 @@ from trainable_openclaw.agent.tau_bench_tools.registry import register_tau_bench
 from trainable_openclaw.agent.tau_bench_tools.mock_db import MockDatabase
 from trainable_openclaw.evaluation import AgentRunner, InteractiveEvaluator
 
-API_KEY = "sk-38a1b2445e3a427b8bbf74a13ffee42a"
+API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 BASE_URL = "https://api.deepseek.com"
 MODEL = "deepseek-chat"
 

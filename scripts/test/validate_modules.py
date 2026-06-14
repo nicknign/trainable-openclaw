@@ -2,7 +2,9 @@
 import sys, json, os, tempfile
 
 sys.path.insert(0, ".")
-os.environ["DEEPSEEK_API_KEY"] = "sk-906ad0dc48354e7aba594ef6d9aa5be6"
+if not os.environ.get("DEEPSEEK_API_KEY"):
+    print("WARNING: DEEPSEEK_API_KEY not set, API tests will fail")
+    os.environ["DEEPSEEK_API_KEY"] = ""
 
 from trainable_openclaw.evaluation.judge import JudgeExecutor
 from trainable_openclaw.evaluation.rubric import Rubric

@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from trainable_openclaw.evaluation import AgentRunner, InteractiveEvaluator
 
 
-API_KEY = "sk-38a1b2445e3a427b8bbf74a13ffee42a"
+API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 BASE_URL = "https://api.deepseek.com"
 MODEL = "deepseek-chat"
 PROMPTS_PATH = Path("data/tau_bench/test_prompts_augmented.jsonl")

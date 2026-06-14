@@ -26,7 +26,7 @@ AGENT_USE_NATIVE_TOOLS = False  # Qwen3-4B uses text-based tool calling
 
 # DeepSeek for simulated user
 SIM_USER_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
-SIM_USER_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-38a1b2445e3a427b8bbf74a13ffee42a")
+SIM_USER_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 SIM_USER_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 
 PROMPTS_PATH = Path(__file__).resolve().parent.parent / "data" / "tau_bench" / "test_prompts_augmented.jsonl"
