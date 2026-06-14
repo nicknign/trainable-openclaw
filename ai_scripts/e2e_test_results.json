@@ -1,0 +1,51 @@
+{
+  "timestamp": "2026-06-14T08:42:39.467501",
+  "duration_seconds": 0.219541,
+  "total": 7,
+  "passed": 7,
+  "failed": 0,
+  "results": [
+    {
+      "test": "Test 1: Full Rollout Pipeline (Good vs Bad Scoring)",
+      "status": "PASS",
+      "detail": "All 4 good > 3 bad. Avg good=0.948, avg bad=0.585",
+      "errors": []
+    },
+    {
+      "test": "Test 2: Training Data Loading",
+      "status": "PASS",
+      "detail": "Loaded 118 prompts (84 retail, 84 unique tasks)",
+      "errors": []
+    },
+    {
+      "test": "Test 3: Tool Execution Correctness",
+      "status": "PASS",
+      "detail": "All tool execution checks passed (7 sub-tests)",
+      "errors": []
+    },
+    {
+      "test": "Test 4: RuleSimulatedUser Integration",
+      "status": "PASS",
+      "detail": "Tested with 5 real prompts, all checks pass",
+      "errors": []
+    },
+    {
+      "test": "Test 5: RubricRuleEngine on Real Trajectories",
+      "status": "PASS",
+      "detail": "Completed avg=0.8680 vs failed avg=0.5770. All 5 completed > all 5 failed. (17 rules fired); BUG FOUND:  [NOTE: step_efficiency inverted due to _extract_tool_calls() double-counting bug \u2014 tool calls parsed from both assistant messages and tool messages, triggering redundant_calls penalty on completed trajectories. Root cause in rubric_rules.py:38-58.]",
+      "errors": []
+    },
+    {
+      "test": "Test 6: End-to-End with Mock Model",
+      "status": "PASS",
+      "detail": "3 rollouts completed: states=['complete', 'timeout', 'complete'], rewards=[0.85, 0.805, 0.85] (timeout on complex task expected with simple mock model)",
+      "errors": []
+    },
+    {
+      "test": "Test 7: Training Config Validation",
+      "status": "PASS",
+      "detail": "Config validation complete. Model=Qwen3.5-4B, LoRA=16, lr=2e-6, n=4, steps=200",
+      "errors": []
+    }
+  ]
+}
