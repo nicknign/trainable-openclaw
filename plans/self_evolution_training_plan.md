@@ -6,9 +6,9 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Phase 0: 准备 (本机)                          │
+│                    Phase 0: 准备 (本机 ✓ / GPU 待)               │
 │                                                                 │
-│  Baseline重测 → 训练集聚类 → DeepSeek生成rubric → 验证校准       │
+│  ✓数据分析 → ✓DeepSeek生成rubric → ✓代码+测试 → ⬜Baseline重测  │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
@@ -28,7 +28,31 @@
 
 ## Phase 0: 训练前准备 (本机，不需要 GPU)
 
-### 0.1 重新建立 Baseline
+### 0.1 数据 Split 分析 (已完成 ✓)
+
+| | Train | Val | Test |
+|---|---|---|---|
+| 条目 | 320 | 28 | 37 |
+| 唯一任务 | **84** | **7** | **23** |
+| 每条增强数 | 3-4 变体 | 4 变体 | 1-2 变体 |
+| 断言数均值 | 1.9 | 1.9 | 1.8 |
+
+**重叠度: 零。** Train ∩ Val = Train ∩ Test = Val ∩ Test = ∅
+
+增强质量: 84 个任务全部有变体，改动用户身份(姓名/邮箱/邮编)，断言随变体变化 → 模型必须学流程，无法死记硬背。
+
+任务类型分布:
+```
+Train: exchange+modify(27%), modify(17%), return(12%), cancel+return+modify(9%), ...
+Test:  exchange+modify(27%), cancel+return(16%), modify(14%), return(14%), ...
+```
+
+**结论与决策:**
+- Val (28条, 7任务, 43% return) 太小且偏斜 → **跳过 Val，checkpoint 评估直接抽 15 条 Test**
+- Test 剩余 22 条保留做最终评估 → **训练过程不看，避免过拟合**
+- 84 训练任务 × 3.8 变体对 4B 模型基本够用但不充裕
+
+### 0.2 重新建立 Baseline (需要 GPU)
 
 **为什么重测**: 之前的 4B 0.191 是混合 30 条(含航空)，评测环境已变(bug 修复后)。需要专测零售 37 条。
 
@@ -39,52 +63,22 @@
 产出: evaluation_results/baseline_4b_retail_37.json
 ```
 
-### 0.2 训练集任务分析
+### 0.3 DeepSeek 生成零售专用 Rubric (已完成 ✓)
 
+已通过 DeepSeek API 分析 12 个采样训练 prompt 生成 20 条零售专用 rubric，
+写入 `data/rubrics_retail.json`。Python 规则引擎 `rubric_rules.py` 已更新为
+23 条可执行规则（6 维度），使用精确 tau-bench 工具名称。
+29 单元测试通过，合成轨迹上 good/bad 区分度 2.15x。
+
+### 0.4 Rubric 在真实轨迹上验证 (待 GPU)
+
+需要等 baseline 评测产出真实轨迹数据后执行:
 ```
-84 条零售训练 prompt
-  → 聚类 5 类: lookup / modify / return / cancel / multi
-    → 每类统计: 数量、必需工具、常见断言模式
-      → 每类采样 3-4 条代表 prompt
-```
-
-### 0.3 DeepSeek 生成零售专用 Rubric
-
-**输入**: 每类 3-4 条采样 prompt + 工具列表 + nl_assertions 示例
-
-**分析 Prompt 模板**:
-```
-你是一个 tau-bench 零售客服评测专家。以下是 5 类零售任务的示例:
-
-[类别1: lookup] ... [类别2: modify] ... 等
-
-请分析每类任务的关键要求，生成 15-20 条量化评分 rubric。
-每条 rubric 格式: {名称, 维度, 评分规则(扣分制), 适用任务类型}
-
-评分维度:
-- 工具选择: 该任务必须/禁止用什么工具
-- 信息充分性: 回复用户前必须获取哪些信息
-- 步骤效率: 最少几步、哪些是冗余
-- 错误恢复: 工具返回error后的正确做法
-- 任务完成: 如何判断所有子任务都完成
-- 沟通质量: 是否给出具体结果、后续引导
-```
-
-**输出**: `data/rubrics_retail.json` (15-20 条专用 rubric，替换通用规则)
-
-**成本**: ~$0.01 (2 次 API 调用: 分析 + 生成)
-
-### 0.4 Rubric 验证与校准
-
-```
-在 deepseek_retail_37.json 的 37 条轨迹上:
-  - 10 条完成轨迹 → 期望得分 > 7.0
-  - 27 条失败轨迹 → 期望得分 < 5.0
+在真实 Qwen3.5-4B 轨迹上:
+  - 完成轨迹 → 期望得分 > 0.6
+  - 失败轨迹 → 期望得分 < 0.4
   - 区分度: p < 0.05 (Mann-Whitney U)
   - 与 satisfaction 相关性: Pearson r > 0.5
-
-不通过 → 调整 rubric → 重新验证
-通过 → 写入 rubric_rules.py 替换默认规则
 ```
 
 ---
@@ -154,10 +148,12 @@ step, reward_mean, reward_std, kl_div, completion_rate, avg_turns
 
 ### 1.5 检查点评估
 
-每 50 步用开发集 (23 条零售) 快速评测:
+每 50 步用测试集前 15 条快速评测（跳过 Val — 太小且偏斜）:
 ```
-python ai_scripts/batch_eval_runner.py --max-tasks 23 --domain retail --output /tmp/r1_step50.json
+python ai_scripts/batch_eval_runner.py --max-tasks 15 --domain retail --output /tmp/r1_step50.json
 ```
+
+剩余 22 条保留到 Phase 2 最终评测，训练过程不接触，避免过拟合。
 
 ---
 
@@ -166,10 +162,11 @@ python ai_scripts/batch_eval_runner.py --max-tasks 23 --domain retail --output /
 ### 2.1 标准评测
 
 ```
-37 条零售测试集评测:
+全量 37 条零售测试集评测 (含训练期未接触的 22 条):
   → 对比 baseline
     → completion_rate, satisfaction, first_try_rate
       → 与 deepseek_upper_bound (0.390) 的差距
+  → 单独报告 checkpoint-15 和 heldout-22 的分数，检测过拟合
 ```
 
 ### 2.2 失败分析 (DeepSeek)
