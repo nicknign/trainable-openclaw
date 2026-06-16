@@ -1,0 +1,11 @@
+{
+  "id": "1781397490944-ffd5c1f8",
+  "from": "unknown",
+  "to": "e2e-code-tester",
+  "type": "task_request",
+  "subject": "Integration tests for GRPO training infrastructure",
+  "body": "### Context\nThe GRPO training components have been implemented:\n- `trainable_openclaw/training/rollout_env.py` — ToolExecutor, RuleSimulatedUser, TauBenchRolloutEnv\n- `trainable_openclaw/training/rubric_rules.py` — RubricRuleEngine (20 rules, 6 groups)\n- `trainable_openclaw/training/grpo_reward.py` — verl-compatible compute_score()\n- `scripts/train/grpo_retail.yaml` — training config\n- `scripts/train/run_grpo.sh` — launch script\n29 unit tests pass (tests/training/).\n\n### Integration tests needed:\n1. **Mock model rollout**: Use a mock model_fn that returns known tool calls, run TauBenchRolloutEnv.rollout_one() on 3 different training prompts from data/tau_bench/train_prompts_augmented.jsonl. Verify trajectories have expected structure and status.\n2. **Good vs bad scoring**: Run RubricRuleEngine on good (DeepSeek eval results) and bad (minimal/empty/no-tool trajectories) and verify clear separation.\n3. **verl DataProto compatibility**: Verify compute_score accepts the per-item signature (data_source, solution_str, ground_truth, extra_info) and returns float 0-1.\n4. **Training data loading**: Verify 84 prompts load correctly from train_prompts_augmented.jsonl.\n\n### How to run tests:\n```\npython -m pytest tests/training/ -v\npython ai_scripts/verify_training_components.py\n```\n\nUnit tests already at `tests/training/test_rollout_env.py` and `tests/training/test_rubric_rules.py`. See `plans/training_plan_v1.md` for full architecture.",
+  "context": {},
+  "timestamp": "2026-06-14T00:38:10.944066+00:00",
+  "status": "unread"
+}

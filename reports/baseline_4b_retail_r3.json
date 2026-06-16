@@ -1,0 +1,59 @@
+{
+  "config": {
+    "model": "Qwen3.5-4B",
+    "backend": "nanobot + vllm",
+    "max_rounds": 3,
+    "note": "Projected from max_rounds=10 results ¡ª tasks completing in >3 rounds counted as timeout",
+    "original_max_rounds": 10
+  },
+  "results_summary": {
+    "total_entries": 37,
+    "completed": 9,
+    "completion_rate": 0.2432,
+    "first_try_rate": 0.1351,
+    "recovery_rate": 0.4444,
+    "avg_rounds_completed": 1.89,
+    "unique_tasks": 23,
+    "unique_tasks_passed": 8,
+    "unique_task_pass_rate": 0.3478
+  },
+  "comparison_with_r10": {
+    "r10_completion_rate": 0.4595,
+    "r3_completion_rate": 0.2432,
+    "tasks_lost": 8,
+    "lost_tasks": [
+      {
+        "task_id": "retail_task_89",
+        "rounds": 5
+      },
+      {
+        "task_id": "retail_task_55",
+        "rounds": 10
+      },
+      {
+        "task_id": "retail_task_64",
+        "rounds": 4
+      },
+      {
+        "task_id": "retail_task_12",
+        "rounds": 4
+      },
+      {
+        "task_id": "retail_task_56",
+        "rounds": 4
+      },
+      {
+        "task_id": "retail_task_89",
+        "rounds": 8
+      },
+      {
+        "task_id": "retail_task_85",
+        "rounds": 7
+      },
+      {
+        "task_id": "retail_task_55",
+        "rounds": 4
+      }
+    ]
+  }
+}

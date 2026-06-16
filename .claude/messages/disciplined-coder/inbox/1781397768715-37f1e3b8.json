@@ -1,0 +1,16 @@
+{
+  "id": "1781397768715-37f1e3b8",
+  "from": "unknown",
+  "to": "disciplined-coder",
+  "type": "task_request",
+  "subject": "BUG: _extract_tool_calls double-counting in rubric_rules.py",
+  "body": "## Bug Found: Tool Call Double-Counting in Rubric Rules\n\n**Severity:** Medium (inflates redundant_calls penalty but does not break overall scoring)\n\n**File:** `trainable_openclaw/training/rubric_rules.py`, lines 38-58, function `_extract_tool_calls()`\n\n**Root cause:** The function extracts tool calls from TWO sources in the conversation:\n1. Assistant messages (parsing `<function_call>` XML tags via `parse_tool_calls_from_text`)\n2. Tool messages (parsing JSON content that contains the SAME tool calls)\n\nThis means every tool call is counted twice. When the conversation has both assistant and tool messages (which the rollout environment always produces), every call becomes a duplicate.\n\n**Impact:** The `redundant_calls` rule (line 344-354) detects all calls as duplicates:\n- 3 unique tool calls become 6 total, giving a -6 step_efficiency deduction\n- This causes step_efficiency to score LOWER for completed trajectories (more messages = more duplicates) than failed ones\n\n**Reproduction:**\n```python\nfrom trainable_openclaw.training.rubric_rules import _extract_tool_calls\nconv = [\n    {\"role\": \"assistant\", \"content\": '<function_call>{\"name\": \"find_user\", \"arguments\": {\"name\": \"Alice\"}}</function_call>'},\n    {\"role\": \"tool\", \"content\": '[{\"name\": \"find_user\", \"result\": {\"status\": \"success\"}}]'},\n]\ncalls = _extract_tool_calls(conv)\nprint(len(calls))  # 2 (should be 1)\n```\n\n**Fix suggestion:** Either (a) extract only from assistant messages OR (b) deduplicate by (name, arguments) tuple. Option (a) is simpler and correct since tool messages should only be used for `_extract_tool_results`.\n\n**Test results:** All 7 integration tests pass overall. The bug was caught by Test 5 (RubricRuleEngine on real trajectories) which detected step_efficiency inversion.",
+  "context": {
+    "files": [
+      "trainable_openclaw/training/rubric_rules.py"
+    ],
+    "bugs_found": 1
+  },
+  "timestamp": "2026-06-14T00:42:48.715063+00:00",
+  "status": "unread"
+}

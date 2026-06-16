@@ -67,6 +67,11 @@ _TOOL_CALL_PATTERN = re.compile(
     re.DOTALL,
 )
 
+_TOOL_CALL_XML_PATTERN = re.compile(
+    r'<tool_call>\s*(\{.*?\})\s*</tool_call>',
+    re.DOTALL,
+)
+
 _JSON_OBJECT_PATTERN = re.compile(
     r'\{[^{}]*"name"\s*:\s*"[^"]+"[^{}]*"arguments"\s*:\s*\{[^{}]*\}[^{}]*\}',
     re.DOTALL,
@@ -90,6 +95,17 @@ def parse_tool_calls_from_text(text: str) -> list[dict[str, Any]]:
 
     # Try <function_call> wrapper first
     for match in _TOOL_CALL_PATTERN.finditer(text):
+        try:
+            obj = json.loads(match.group(1).strip())
+            calls.append(_normalize_tool_call(obj))
+        except json.JSONDecodeError:
+            continue
+
+    if calls:
+        return calls
+
+    # Try <tool_call> wrapper (Agent Loop / Qwen3 XML format)
+    for match in _TOOL_CALL_XML_PATTERN.finditer(text):
         try:
             obj = json.loads(match.group(1).strip())
             calls.append(_normalize_tool_call(obj))
