@@ -54,6 +54,8 @@ def convert(input_path: str, output_path: str) -> None:
                 {"role": "user", "content": prompt_text},
             ]
             obj["agent_name"] = "tool_agent"
+            obj["data_source"] = obj.get("source", "taubench_retail")
+            obj["reward_model"] = {"ground_truth": obj.get("domain", "retail"), "style": "rule"}
 
             fout.write(json.dumps(obj, ensure_ascii=False) + "\n")
             count += 1

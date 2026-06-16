@@ -49,7 +49,20 @@ if device_id is not None and len(list_args) > 6:
     list_args[6] = device_id
 ```
 
-### 2. verl-main-0516/verl/trainer/config/grpo_retail.yaml
+### 2. scripts/data/add_agent_name.py (行 58-59)
+
+从 train/val split 生成 Agent Loop 用的数据。新增字段：
+
+- `agent_name`: "tool_agent" — verl 使用此字段选择 ToolAgentLoop
+- `data_source`: "taubench_retail" — naive reward manager 的必需字段，取原始 `source` 字段
+- `reward_model`: `{"ground_truth": "retail", "style": "rule"}` — naive reward manager 要求
+
+```bash
+python scripts/data/add_agent_name.py data/tau_bench/train_split_66.jsonl data/tau_bench/train_agent_66.jsonl
+python scripts/data/add_agent_name.py data/tau_bench/val_split_18.jsonl data/tau_bench/val_agent_18.jsonl
+```
+
+### 3. verl-main-0516/verl/trainer/config/grpo_retail.yaml
 
 完整训练配置（从 `scripts/train/grpo_retail.yaml` 复制）。关键参数：
 
@@ -70,15 +83,6 @@ if device_id is not None and len(list_args) > 6:
 
 **注意**: `data.max_prompt_length` 和 `rollout.prompt_length` 必须一致，否则会导致 prompt 截断不一致。
 
-### 3. data/tau_bench/train_agent_66.jsonl + val_agent_18.jsonl
-
-从 `train_split_66.jsonl` / `val_split_18.jsonl` 生成，添加字段：
-- `agent_name`: "tool_agent" — 告诉 verl 使用 ToolAgentLoop
-- `data_source`: "taubench_retail" — naive reward manager 要求
-- `reward_model`: `{"ground_truth": "retail", "style": "rule"}` — naive reward manager 要求
-
-生成脚本: `scripts/data/add_agent_name.py`
-
 ### 4. (未应用) truncation patches in agent_loop.py
 
 **注意**: 以下 patch 在远程机器上应用了，但**本地未应用**。原因是远程和本地的 verl 版本不同：
@@ -88,7 +92,7 @@ if device_id is not None and len(list_args) > 6:
 
 远程应用的 patch 在 `_agent_loop_postprocess` 中：
 ```python
-# Patch 1: Prompt pre-truncation (冗余了，verl 内置已有)
+# Patch 1: Prompt pre-truncation (verl 内置已有，冗余)
 prompt_ids = output.prompt_ids[-self.rollout_config.prompt_length:]
 
 # Patch 2: Response pre-truncation (安全上限)
@@ -102,7 +106,130 @@ start_pos = prompt_output["input_ids"].shape[1] - len(prompt_ids)
 prompt_length=len(prompt_ids), response_length=len(response_ids),
 ```
 
-如果本地也需要这些安全上限（防止模型生成超长 response 导致 tensor 长度不一致），需要用 `tokenizer.pad()` 而非 `_pad_token_ids()`。
+如果需要安全上限（防止模型生成超长 response 导致 tensor 长度不一致），用 `tokenizer.pad()` 实现。
+
+---
+
+## 数据说明
+
+### 数据来源
+
+tau-bench retail — 客服对话任务。用户扮演客户（模拟），agent 扮演客服。涉及订单查询、退货、换货、退款、地址修改等零售场景。
+
+### 数据流转
+
+```
+tau-bench 定义 (164 retail tasks)
+    │
+    ▼
+┌─────────────────────────────────────────────┐
+│ scripts/data/ 处理                           │
+│                                              │
+│ 1. convert_tau_bench.py  → 原始 JSONL        │
+│ 2. filter_and_split.py    → train/val/test   │
+│ 3. augment_data.py        → 每 task 多 variant│
+│ 4. add_agent_name.py      → Agent Loop 格式   │
+└─────────────────────────────────────────────┘
+    │
+    ▼
+train_agent_66.jsonl  (251 条, 66 个 unique tasks, ~3.8 条/task)
+val_agent_18.jsonl    ( 69 条, 18 个 unique tasks, ~3.8 条/task)
+test_agent_37.jsonl   ( 37 条, 23 个 unique tasks, 用于 baseline)
+```
+
+### 数据隔离
+
+train/val/test 按 **task_id** 分，同一 task 的所有 variant 只在其中一个 split，保证无泄漏。
+
+### 每条数据格式
+
+```json
+{
+    "id": "retail_task_12_v0",
+    "source": "taubench_retail",
+    "data_source": "taubench_retail",
+    "task_id": "retail_task_12",
+    "domain": "retail",
+    "variant": "v0",
+    "evaluation": {"rubric": "...", "expected_outcome": "..."},
+    "tools": ["lookup_user", "lookup_order", ...],
+    "prompt": [
+        {"role": "system", "content": "You are a retail customer service agent..."},
+        {"role": "user", "content": "Hi, I need help with my order..."}
+    ],
+    "agent_name": "tool_agent",
+    "reward_model": {"ground_truth": "retail", "style": "rule"}
+}
+```
+
+**关键字段**:
+- `agent_name`: "tool_agent" → verl 使用 ToolAgentLoop 处理多轮工具调用
+- `data_source`: na4ve reward manager 使用此字段分组
+- `reward_model.ground_truth`: reward manager 根据 domain ("retail") 选择对应的 rubric engine
+- `prompt`: messages 格式（非纯文本），verl 内部用 `apply_chat_template` + tools 生成 token ids
+
+### 工具定义
+
+34 个工具: 18 tau-bench 零售工具 + shared tools (think, transfer_to_human 等)。
+在 `trainable_openclaw/training/agent_tools.py` 中用 `@function_tool` 装饰器注册。
+verl Agent Loop 在 rollout 时加载并按 `qwen3_coder` XML 格式注入 prompt。
+
+---
+
+## Baseline 测试流程
+
+### 架构
+
+```
+┌──────────────┐      ┌──────────┐      ┌─────────────────┐
+│  vllm server │ ←──→ │ nanobot  │ ←──→ │ DeepSeek (user) │
+│  Qwen3.5-4B  │      │ :8900    │      │ 模拟客户对话      │
+│  port 8000   │      │          │      │ 评估任务完成度    │
+└──────────────┘      └──────────┘      └─────────────────┘
+```
+
+- **vllm**: 提供 LLM 推理，max-model-len 49152，qwen3_coder tool parser
+- **nanobot**: agent 框架，管理多轮对话、工具调用、上下文
+- **DeepSeek-chat**: 模拟用户，按 task 定义的角色和场景与 agent 对话
+- **评测指标**: completion rate（任务完成率）、avg rounds、first try rate、recovery rate
+
+### 运行 baseline
+
+```bash
+# 1. 启动 vllm (远程)
+bash scripts/deploy/start_experience.sh
+
+# 2. 运行零售评测
+python scripts/eval/run_full_eval.py \
+    --model qwen3.5-4b \
+    --domain retail \
+    --test-file data/tau_bench/test_prompts_augmented.jsonl \
+    --output evaluation_results/
+```
+
+### Baseline 成绩
+
+| Config | Completion | 说明 |
+|--------|-----------|------|
+| Qwen3.5-2B | **0%** | 完全不会用工具 |
+| Qwen3.5-4B, hermes, 12K ctx | 6.67% (2/30) | 旧 baseline (2026-06-13) |
+| **Qwen3.5-4B, qwen3_coder, 48K** | **45.95% (17/37)** | 当前 baseline (2026-06-14) |
+
+**2B 的问题**: benchmark 上 0% completion rate。模型输出 tool call token，但 nanobot 无法正确解析——格式不对，工具名或参数提取错误。这说明 2B 在没有额外训练的情况下不具备可靠的 tool-calling 能力。
+
+这解释了 GRPO 训练时 `split_sizes=[4,4,4,4,4,4,4,4]` 错误的根因：2B 输出几近 EOS，无有用轨迹。
+
+**潜在的解决方向**:
+1. **先做 SFT 预热**: 用 4B 在 nanobot 上跑的 successful trajectories 做 dataset，SFT 2B 学习基本 tool-calling 格式
+2. **换 4B + 更激进的 memory 策略**: 减小 KV cache、降低 batch、用 CPU offload
+3. **从头训练一个 tool-calling adapter**: 用 2B + adapter 专门学习工具调用
+
+### Baseline vs GRPO 的关系
+
+- **Baseline**: static eval — 用 nanobot + vllm 跑对话，看 agent 能否完成任务
+- **GRPO 训练**: dynamic training — verl 内部跑 Agent Loop rollout，用 reward 信号更新 LoRA 权重
+
+两者共享 `agent_tools.py`（工具定义）和 reward rubrics。reward 框架见 `trainable_openclaw/training/grpo_reward.py`。
 
 ## 遇到的错误
 
